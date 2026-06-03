@@ -354,6 +354,10 @@ function deriveIncidencias(ff){
       out.push({factura_id:f.id,codigo_validacion:'V14',tipo:'AVISO',estado:'ABIERTA',descripcion:'Diferencia de importe dentro de tolerancia — se registra como aviso',dato_esperado:eur(f.total_calculado),dato_recibido:eur(f.total_factura)});
     if(f.estado==='PENDIENTE_CRITERIO')
       out.push({factura_id:f.id,codigo_validacion:'V16',tipo:'INCIDENCIA',estado:'ABIERTA',descripcion:'Factura sin número de pedido de un proveedor que requiere pedido',dato_esperado:'Nº pedido',dato_recibido:'(no figura)'});
+    // V23 — dirección fiscal: la oficial de Montero contiene "RECOMBA"
+    const dir=(f.direccion_fiscal_detectada||'').toString().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    if(dir&&!dir.includes('RECOMBA'))
+      out.push({factura_id:f.id,codigo_validacion:'V23',tipo:'INCIDENCIA',estado:'ABIERTA',descripcion:'La dirección fiscal de la factura no coincide con la oficial de Montero Alquiler S.A.',dato_esperado:'AV LA RECOMBA (P.I. LA LAGUNA), 10 · 28911 Leganés',dato_recibido:f.direccion_fiscal_detectada});
   });
   return out;
 }
