@@ -340,6 +340,12 @@ async function loadAll(){
 function deriveIncidencias(ff){
   const out=[];
   ff.forEach(f=>{
+    const ia=f.json_extraccion_ia||{};
+    // Si el workflow ya registró sus validaciones, son la fuente autoritativa
+    if(Array.isArray(ia._validaciones)){
+      ia._validaciones.forEach(x=>out.push({factura_id:f.id,codigo_validacion:x.codigo,tipo:x.tipo||'INCIDENCIA',estado:'ABIERTA',descripcion:x.texto,dato_esperado:x.esperado,dato_recibido:x.recibido}));
+      return;
+    }
     const dif=f.diferencia_importe!=null?+f.diferencia_importe:null;
     const conf=f.confianza_extraccion!=null?+f.confianza_extraccion:null;
     if(f.estado==='ILEGIBLE')
