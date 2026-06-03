@@ -277,6 +277,7 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
         <button data-d="365">1a</button>
         <button data-d="0" class="active">Todo</button>
       </div>
+      <button class="ico-btn" id="btn-leyenda" title="Qué significa cada estado"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Leyenda</button>
       <button class="ico-btn" id="btn-export"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Exportar</button>
       <button class="ico-btn primary" id="btn-refresh"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Actualizar</button>
     </div>
@@ -672,6 +673,44 @@ async function openDrawer(id){
   $('#dr-body').scrollTop=0;
 }
 function closeDrawer(){$('#ov').classList.remove('open');$('#drawer').classList.remove('open');}
+function openLegend(){
+  $('#ov').classList.add('open');$('#drawer').classList.add('open');
+  $('#dr-head').innerHTML=`<div><div class="dr-title">Leyenda</div><div class="dr-sub">Qué significa cada estado y aviso</div></div><button class="x" id="dr-close">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}</button>`;
+  $('#dr-close').onclick=closeDrawer;
+  const it=(est,txt)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line-2)"><span class="bdg s-${est}" style="flex-shrink:0">${est}</span><span style="font-size:13px;color:var(--ink-2);padding-top:1px">${txt}</span></div>`;
+  const inc=(t,txt)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line-2)"><span class="bdg t-${t}" style="flex-shrink:0">${t}</span><span style="font-size:13px;color:var(--ink-2);padding-top:1px">${txt}</span></div>`;
+  $('#dr-body').innerHTML=`
+    <div class="dr-sec">
+      <div class="dr-sec-t">${svg(ICN.check)}Correctas</div>
+      ${it('VALIDADA','Pasó todas las comprobaciones automáticas. Lista para contabilizar.')}
+      ${it('EXPORTADA','Registrada en AS400. (cuando haya conexión)')}
+      ${it('COMPLETADA','Proceso terminado de principio a fin.')}
+    </div>
+    <div class="dr-sec">
+      <div class="dr-sec-t">${svg(ICN.alert)}Requieren a una persona</div>
+      ${it('EN_REVISION','Algo no cuadra: importes, confianza o dirección. María debe revisarla.')}
+      ${it('PENDIENTE_CRITERIO','Falta un criterio que solo una persona puede decidir (ej. proveedor sin pedido).')}
+      ${it('DUPLICADO_PENDIENTE','Posible factura duplicada. Confirmar antes de procesar.')}
+      ${it('PENDIENTE','Pendiente de una acción manual.')}
+    </div>
+    <div class="dr-sec">
+      <div class="dr-sec-t">${svg(ICN.alert)}No se pueden procesar</div>
+      ${it('ILEGIBLE','La IA no pudo leer el documento (foto borrosa, escaneo malo). Reenviar o introducir a mano.')}
+      ${it('RECHAZADA','Descartada: no es una factura válida o rechazada en revisión.')}
+    </div>
+    <div class="dr-sec">
+      <div class="dr-sec-t">${svg(ICN.list)}En proceso</div>
+      ${it('PROCESANDO','La IA está extrayendo los datos en este momento.')}
+      ${it('RECIBIDA','Leída y guardada, pendiente de validar.')}
+    </div>
+    <div class="dr-sec">
+      <div class="dr-sec-t">${svg(ICN.alert)}Tipos de aviso</div>
+      ${inc('AVISO','Informativo, no bloquea (ej. diferencia de importe menor de 2€).')}
+      ${inc('INCIDENCIA','Algo a revisar antes de dar por buena la factura.')}
+      ${inc('BLOQUEANTE','Impide procesar la factura hasta resolverlo.')}
+    </div>`;
+  $('#dr-body').scrollTop=0;
+}
 
 /* ---------- charts ---------- */
 function drawCharts(){
@@ -706,6 +745,7 @@ $('#period').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('#period').q
 $('#ov').onclick=closeDrawer;
 $('#btn-refresh').onclick=loadAll;
 $('#btn-export').onclick=exportCSV;
+$('#btn-leyenda').onclick=openLegend;
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 
 function exportCSV(){
