@@ -97,6 +97,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .search svg{width:15px;height:15px;color:var(--faint)}
 .search input{border:none;background:none;outline:none;font-size:13px;width:100%;color:var(--ink);font-family:inherit}
 .sel{height:36px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:0 30px 0 11px;font-size:13px;font-weight:500;color:var(--ink-2);font-family:inherit;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center}
+.chips-row{display:flex;gap:8px;padding:13px 18px 0;flex-wrap:wrap}
+.chip{padding:6px 14px;border-radius:20px;font-size:12.5px;font-weight:600;color:var(--muted);background:var(--bg);border:1px solid var(--line);transition:.12s}
+.chip:hover{border-color:var(--faint);color:var(--ink)}
+.chip.active{background:var(--red);color:#fff;border-color:var(--red)}
 .tbl-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 thead th{padding:11px 18px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--faint);background:#fbfcfd;border-bottom:1px solid var(--line);white-space:nowrap;user-select:none}
@@ -292,8 +296,9 @@ const SB_URL='https://kehamwcxejrgaqsjlhig.supabase.co';
 const SB_KEY='sb_publishable_F1FUs8KYchT2TovpN_Tdjg_o_4yIHAW';
 const TOL=2; // tolerancia diferencia importe (€)
 
-const state={view:'resumen',dias:0,facturas:[],incidencias:[],search:'',fProv:'',fEstado:'',provSel:null,sort:{k:'fecha',dir:-1}};
-let chartEstado=null,chartProv=null;
+const state={view:'resumen',dias:0,facturas:[],incidencias:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
+let chartMes=null;
+const PEND=['ILEGIBLE','DUPLICADO_PENDIENTE','EN_REVISION','PENDIENTE_CRITERIO','PENDIENTE'];
 
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
@@ -378,7 +383,7 @@ function updateNav(){
 /* ---------- router ---------- */
 const TITLES={resumen:['Resumen','Vista general de la facturación'],facturas:['Facturas','Listado completo de facturas procesadas'],incidencias:['Incidencias','Validaciones, avisos y bloqueos detectados'],proveedores:['Proveedores','Actividad y ranking de proveedores']};
 function setView(v){
-  state.view=v;state.provSel=null;
+  state.view=v;state.provSel=null;state.quickFilter='';
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
   $('#pg-title').textContent=TITLES[v][0];$('#pg-sub').textContent=TITLES[v][1];
   render();
@@ -396,42 +401,59 @@ function render(){
 /* ---------- metrics ---------- */
 function metrics(ff){
   const importe=ff.reduce((s,f)=>s+(+f.total_factura||0),0);
-  const revision=ff.filter(f=>['EN_REVISION','PENDIENTE','ILEGIBLE','PENDIENTE_CRITERIO'].includes(f.estado)).length;
+  const revision=ff.filter(f=>PEND.includes(f.estado)).length;
   const validadas=ff.filter(f=>['VALIDADA','COMPLETADA','EXPORTADA'].includes(f.estado)).length;
   return{total:ff.length,importe,revision,validadas};
 }
+function facturasPendientes(){
+  return state.facturas.filter(f=>PEND.includes(f.estado))
+    .sort((a,b)=>(PEND.indexOf(a.estado)-PEND.indexOf(b.estado))||(new Date(b.fecha_recepcion)-new Date(a.fecha_recepcion)));
+}
+function motivoDe(id){
+  const i=state.incidencias.filter(x=>x.factura_id===id);
+  return i.length?i.map(x=>x.descripcion).join(' · '):'Pendiente de revisión';
+}
 
-/* ---------- RESUMEN ---------- */
+/* ---------- RESUMEN (centro de trabajo) ---------- */
 function viewResumen(){
   const m=metrics(state.facturas);
   const incAb=state.incidencias.filter(i=>i.estado==='ABIERTA').length;
+  const pend=facturasPendientes();
   const kpi=(ic,cls,val,lbl,extra='')=>`<div class="kpi ${extra}"><div class="kpi-top"><div class="kpi-ic ${cls}">${svg(ic)}</div></div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
   return `
   <div class="kpis">
-    ${kpi(ICN.file,'red',m.total,'Facturas en el periodo')}
-    ${kpi(ICN.euro,'green',eurS(m.importe),'Importe total facturado')}
-    ${kpi(ICN.alert,'amber',incAb,'Incidencias abiertas','clk" data-go="incidencias')}
-    ${kpi(ICN.check,'green',m.validadas,'Facturas validadas')}
+    ${kpi(ICN.alert,'amber',m.revision,'Requieren revisión','clk" data-go="revision')}
+    ${kpi(ICN.alert,'red',incAb,'Incidencias abiertas','clk" data-go="incidencias')}
+    ${kpi(ICN.file,'blue',m.total,'Facturas en el periodo')}
+    ${kpi(ICN.euro,'green',eurS(m.importe),'Importe total')}
   </div>
-  <div class="grid-charts">
-    <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.list)}Distribución por estado</div></div><div class="chart-box"><canvas id="ch-estado"></canvas></div></div>
-    <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.euro)}Importe por proveedor</div><span class="card-meta">Top 6</span></div><div class="chart-box"><canvas id="ch-prov"></canvas></div></div>
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-h"><div class="card-t">${svg(ICN.alert)}Requieren tu atención</div>${pend.length?`<span class="card-meta" data-go="revision" style="cursor:pointer;color:var(--red)">Ver todas →</span>`:''}</div>
+    ${colaTrabajo(pend)}
   </div>
   <div class="grid-2">
-    <div class="card">
-      <div class="card-h"><div class="card-t">${svg(ICN.file)}Últimas facturas</div><span class="card-meta" data-go="facturas" style="cursor:pointer;color:var(--red)">Ver todas →</span></div>
-      ${tablaFacturas(state.facturas.slice(0,7),false)}
-    </div>
-    <div class="card">
-      <div class="card-h"><div class="card-t">${svg(ICN.alert)}Incidencias recientes</div><span class="card-meta" data-go="incidencias" style="cursor:pointer;color:var(--red)">Ver todas →</span></div>
-      ${listaIncidencias(state.incidencias.slice(0,5))}
-    </div>
+    <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.euro)}Gasto mensual</div><span class="card-meta">Últimos 6 meses</span></div><div class="chart-box" style="height:240px"><canvas id="ch-mes"></canvas></div></div>
+    <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.file)}Actividad reciente</div><span class="card-meta" data-go="facturas" style="cursor:pointer;color:var(--red)">Ver todas →</span></div>${tablaFacturas(state.facturas.slice(0,6),false)}</div>
   </div>`;
+}
+function colaTrabajo(ff){
+  if(!ff.length)return`<div class="empty">${svg(ICN.check,'var(--green)')}<p style="color:var(--green)">Todo al día</p><small>No hay facturas pendientes de revisar</small></div>`;
+  const rows=ff.slice(0,8).map(f=>`<tr data-id="${f.id}">
+      <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
+      <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
+      <td class="r cell-strong">${eur(f.total_factura)}</td>
+      <td><span class="bdg s-${f.estado}">${esc(f.estado)}</span></td>
+      <td style="max-width:300px;color:var(--muted);font-size:12.5px"><div class="trunc" style="max-width:300px">${esc(motivoDe(f.id))}</div></td>
+    </tr>`).join('');
+  return`<div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th>Nº Factura</th><th class="r">Total</th><th>Estado</th><th>Motivo</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 /* ---------- FACTURAS ---------- */
 function filtradas(){
   let ff=state.facturas.slice();
+  if(state.quickFilter==='revision')ff=ff.filter(f=>PEND.includes(f.estado));
+  else if(state.quickFilter==='validadas')ff=ff.filter(f=>['VALIDADA','COMPLETADA','EXPORTADA'].includes(f.estado));
+  else if(state.quickFilter==='mes'){const n=new Date();ff=ff.filter(f=>{const d=new Date(f.fecha_factura||f.fecha_recepcion);return !isNaN(d)&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});}
   if(state.fProv)ff=ff.filter(f=>nombreProv(f)===state.fProv);
   if(state.fEstado)ff=ff.filter(f=>f.estado===state.fEstado);
   if(state.search){const q=state.search.toLowerCase();ff=ff.filter(f=>(f.numero_factura||'').toLowerCase().includes(q)||nombreProv(f).toLowerCase().includes(q)||(nifProv(f)||'').toLowerCase().includes(q));}
@@ -451,7 +473,11 @@ function viewFacturas(){
   const provs=[...new Set(state.facturas.map(nombreProv))].sort();
   const estados=[...new Set(state.facturas.map(f=>f.estado).filter(Boolean))].sort();
   const ff=filtradas();
+  const chips=[['','Todas'],['revision','Requieren revisión'],['validadas','Validadas'],['mes','Este mes']];
   return `<div class="card">
+    <div class="chips-row">
+      ${chips.map(([k,l])=>`<button class="chip ${(state.quickFilter||'')===k?'active':''}" data-chip="${k}">${l}</button>`).join('')}
+    </div>
     <div class="tbl-tools">
       <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor o NIF…" value="${esc(state.search)}"></div>
       <select class="sel" id="f-prov"><option value="">Todos los proveedores</option>${provs.map(p=>`<option ${p===state.fProv?'selected':''}>${esc(p)}</option>`).join('')}</select>
@@ -651,25 +677,23 @@ function closeDrawer(){$('#ov').classList.remove('open');$('#drawer').classList.
 function drawCharts(){
   if(!window.Chart)return;
   const ff=state.facturas;
-  const byEstado={};ff.forEach(f=>byEstado[f.estado||'—']=(byEstado[f.estado||'—']||0)+1);
-  const colEstado={VALIDADA:'#0f9d58',COMPLETADA:'#0f9d58',EXPORTADA:'#0f9d58',RECIBIDA:'#2563eb',PENDIENTE:'#2563eb',PROCESANDO:'#d97706',EN_REVISION:'#d97706',RECHAZADA:'#dc2626',ILEGIBLE:'#dc2626',DUPLICADO_PENDIENTE:'#7c3aed'};
-  const eL=Object.keys(byEstado),eD=Object.values(byEstado),eC=eL.map(k=>colEstado[k]||'#94a3b8');
-  if(chartEstado)chartEstado.destroy();
-  const ce=$('#ch-estado');
-  if(ce&&eL.length)chartEstado=new Chart(ce,{type:'doughnut',data:{labels:eL,datasets:[{data:eD,backgroundColor:eC,borderWidth:2,borderColor:'#fff',hoverOffset:6}]},options:{cutout:'66%',plugins:{legend:{position:'right',labels:{boxWidth:10,boxHeight:10,padding:14,font:{family:'Inter',size:12},color:'#334155'}}},maintainAspectRatio:false}});
-
-  const byProv={};ff.forEach(f=>{const n=nombreProv(f);byProv[n]=(byProv[n]||0)+(+f.total_factura||0);});
-  const top=Object.entries(byProv).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  if(chartProv)chartProv.destroy();
-  const cp=$('#ch-prov');
-  if(cp&&top.length)chartProv=new Chart(cp,{type:'bar',data:{labels:top.map(t=>t[0].length>16?t[0].slice(0,15)+'…':t[0]),datasets:[{data:top.map(t=>t[1]),backgroundColor:'#C8102E',borderRadius:6,barThickness:18}]},options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>eur(c.raw)}}},scales:{x:{grid:{color:'#eef1f5'},ticks:{font:{family:'Inter',size:11},color:'#94a3b8',callback:v=>eurS(v)}},y:{grid:{display:false},ticks:{font:{family:'Inter',size:11.5},color:'#334155'}}},maintainAspectRatio:false}});
+  // Gasto por mes (últimos 6 meses)
+  const now=new Date();
+  const meses=[];
+  for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);meses.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),label:d.toLocaleDateString('es-ES',{month:'short'}),total:0});}
+  const idx={};meses.forEach((m,i)=>idx[m.key]=i);
+  ff.forEach(f=>{const d=new Date(f.fecha_factura||f.fecha_recepcion);if(isNaN(d))return;const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');if(k in idx)meses[idx[k]].total+=+f.total_factura||0;});
+  if(chartMes)chartMes.destroy();
+  const cm=$('#ch-mes');
+  if(cm)chartMes=new Chart(cm,{type:'bar',data:{labels:meses.map(m=>m.label),datasets:[{data:meses.map(m=>m.total),backgroundColor:'#C8102E',borderRadius:6,maxBarThickness:46}]},options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>eur(c.raw)}}},scales:{y:{grid:{color:'#eef1f5'},ticks:{font:{family:'Inter',size:11},color:'#94a3b8',callback:v=>eurS(v)}},x:{grid:{display:false},ticks:{font:{family:'Inter',size:12},color:'#334155'}}},maintainAspectRatio:false}});
 }
 
 /* ---------- events ---------- */
 function bindContent(){
   document.querySelectorAll('tbody tr[data-id]').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.id));
   document.querySelectorAll('.inc[data-id]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.id));
-  document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>setView(el.dataset.go));
+  document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(g==='revision'){setView('facturas');state.quickFilter='revision';render();}else setView(g);});
+  document.querySelectorAll('[data-chip]').forEach(el=>el.onclick=()=>{state.quickFilter=el.dataset.chip;render();});
   document.querySelectorAll('tbody tr[data-prov]').forEach(tr=>tr.onclick=()=>{state.provSel=tr.dataset.prov;render();});
   const back=$('#prov-back');if(back)back.onclick=()=>{state.provSel=null;render();};
   document.querySelectorAll('th[data-sort]').forEach(th=>th.onclick=()=>{const k=th.dataset.sort;if(state.sort.k===k)state.sort.dir*=-1;else state.sort={k,dir:k==='prov'?1:-1};render();});
