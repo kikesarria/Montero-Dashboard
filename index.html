@@ -227,6 +227,18 @@ details.raw summary{font-size:12.5px;color:var(--muted);font-weight:600;cursor:p
 details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px;font-size:11px;overflow-x:auto;margin-top:8px;line-height:1.5;max-height:300px;overflow-y:auto}
 .inc-mini{display:flex;gap:10px;padding:11px;border:1px solid var(--line);border-radius:10px}
 .inc-mini+.inc-mini{margin-top:9px}
+.dr-actions{display:flex;gap:10px;padding:16px 24px;background:#fff7ed;border-bottom:1px solid var(--line)}
+.act-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;height:42px;border-radius:9px;font-weight:700;font-size:14px;transition:.13s}
+.act-btn svg{width:17px;height:17px}
+.act-btn.ok{background:var(--green);color:#fff}
+.act-btn.ok:hover{background:#0c8049}
+.act-btn.no{background:#fff;color:var(--rd);border:1px solid var(--rd)}
+.act-btn.no:hover{background:var(--rd);color:#fff}
+.rev-note{display:flex;align-items:center;gap:8px;padding:12px 24px;background:var(--green-s);color:#0c7a43;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--line)}
+.bdg.s-RESUELTA{background:var(--green-s);color:var(--green)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:12px 22px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow-lg);z-index:200;opacity:0;pointer-events:none;transition:.25s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{background:var(--rd)}
 
 @media(max-width:1000px){
   .app{grid-template-columns:64px 1fr}
@@ -371,7 +383,9 @@ function deriveIncidencias(ff){
     if(dir&&!dir.includes('RECOMBA'))
       out.push({factura_id:f.id,codigo_validacion:'V23',tipo:'INCIDENCIA',estado:'ABIERTA',descripcion:'La dirección fiscal de la factura no coincide con la oficial de Montero Alquiler S.A.',dato_esperado:'AV LA RECOMBA (P.I. LA LAGUNA), 10 · 28911 Leganés',dato_recibido:f.direccion_fiscal_detectada});
   });
-  return out;
+  // Facturas revisadas manualmente → sus incidencias pasan a RESUELTA
+  const resueltas=new Set(ff.filter(f=>(f.json_extraccion_ia||{})._revision).map(f=>f.id));
+  return out.map(i=>resueltas.has(i.factura_id)?{...i,estado:'RESUELTA'}:i);
 }
 function setConn(ok,msg){$('#conn-dot').className='dot'+(ok?'':' off');$('#conn-txt').textContent=ok?'Conectado':'Sin conexión';}
 function updateNav(){
@@ -626,8 +640,15 @@ async function openDrawer(id){
   const j=f.json_extraccion_ia||{};
   const prov=j?.proveedor||j?.datos_extraidos?.proveedor||{};
   const docUrl=j?._documento_url||j?.datos_extraidos?._documento_url||null;
+  const esPend=PEND.includes(f.estado);
+  const rev=j?._revision;
 
   $('#dr-body').innerHTML=`
+    ${esPend?`<div class="dr-actions">
+      <button class="act-btn ok" data-act="VALIDADA" data-id="${f.id}">${svg(ICN.check)}Validar</button>
+      <button class="act-btn no" data-act="RECHAZADA" data-id="${f.id}">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}Rechazar</button>
+    </div>`:''}
+    ${rev?`<div class="rev-note">${svg(ICN.check,'var(--green)').replace('viewBox','width="15" height="15" viewBox')}Revisada manualmente · ${dtL(rev.fecha)} → <b>${esc(rev.accion)}</b></div>`:''}
     <div class="dr-sec">
       <div class="dr-sec-t">${svg('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/>')}Proveedor</div>
       <div class="kv">
@@ -671,6 +692,26 @@ async function openDrawer(id){
       <details class="raw"><summary>Ver datos extraídos (JSON)</summary><pre>${esc(JSON.stringify(f.json_extraccion_ia,null,2))}</pre></details>
     </div>`;
   $('#dr-body').scrollTop=0;
+  document.querySelectorAll('#dr-body [data-act]').forEach(b=>b.onclick=()=>resolverFactura(b.dataset.id,b.dataset.act));
+}
+async function resolverFactura(id,nuevoEstado){
+  const f=state.facturas.find(x=>x.id===id);if(!f)return;
+  const accionTxt=nuevoEstado==='VALIDADA'?'validar':'rechazar';
+  if(!confirm(`¿Seguro que quieres ${accionTxt} la factura ${f.numero_factura||''}?`))return;
+  const ia=Object.assign({},f.json_extraccion_ia||{});
+  ia._revision={accion:nuevoEstado,fecha:new Date().toISOString(),por:'Panel'};
+  try{
+    const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({estado:nuevoEstado,json_extraccion_ia:ia})});
+    const data=await r.json().catch(()=>[]);
+    if(!r.ok||!Array.isArray(data)||!data.length)throw new Error('no_persistido');
+    closeDrawer();toast(nuevoEstado==='VALIDADA'?'Factura validada':'Factura rechazada');await loadAll();
+  }catch(e){console.error(e);toast('No se pudo guardar (falta permiso de escritura)','err');}
+}
+let toastT=null;
+function toast(msg,tipo){
+  let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t);}
+  t.className='toast'+(tipo==='err'?' err':'');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),3000);
 }
 function closeDrawer(){$('#ov').classList.remove('open');$('#drawer').classList.remove('open');}
 function openLegend(){
