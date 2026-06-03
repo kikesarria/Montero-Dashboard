@@ -315,7 +315,8 @@ const ICN={
   card:'<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>',
   pin:'<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
   list:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
-  inbox:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
+  inbox:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  check:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'
 };
 const svg=(p,c='currentColor')=>`<svg fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">${p}</svg>`;
 function confHTML(v){if(v==null)return'<span style="color:var(--faint)">—</span>';const p=Math.round(v*100),c=p>=80?'hi':p>=60?'md':'lo';return`<span class="conf"><span class="conf-bg"><span class="conf-f ${c}" style="width:${p}%"></span></span><span class="conf-n">${p}%</span></span>`;}
@@ -386,9 +387,8 @@ function render(){
 function metrics(ff){
   const importe=ff.reduce((s,f)=>s+(+f.total_factura||0),0);
   const revision=ff.filter(f=>['EN_REVISION','PENDIENTE','ILEGIBLE','PENDIENTE_CRITERIO'].includes(f.estado)).length;
-  const confs=ff.filter(f=>f.confianza_extraccion!=null).map(f=>+f.confianza_extraccion);
-  const conf=confs.length?Math.round(confs.reduce((a,b)=>a+b,0)/confs.length*100):null;
-  return{total:ff.length,importe,revision,conf};
+  const validadas=ff.filter(f=>['VALIDADA','COMPLETADA','EXPORTADA'].includes(f.estado)).length;
+  return{total:ff.length,importe,revision,validadas};
 }
 
 /* ---------- RESUMEN ---------- */
@@ -401,7 +401,7 @@ function viewResumen(){
     ${kpi(ICN.file,'red',m.total,'Facturas en el periodo')}
     ${kpi(ICN.euro,'green',eurS(m.importe),'Importe total facturado')}
     ${kpi(ICN.alert,'amber',incAb,'Incidencias abiertas','clk" data-go="incidencias')}
-    ${kpi(ICN.bot,'blue',m.conf!=null?m.conf+'%':'—','Confianza media IA')}
+    ${kpi(ICN.check,'green',m.validadas,'Facturas validadas')}
   </div>
   <div class="grid-charts">
     <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.list)}Distribución por estado</div></div><div class="chart-box"><canvas id="ch-estado"></canvas></div></div>
@@ -475,7 +475,6 @@ function tablaFacturas(ff,full){
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="r cell-strong">${eur(f.total_factura)} ${warn?`<span title="Diferencia ${eur(dif)}" style="color:var(--rd)">${svg(ICN.alert).replace('viewBox','width="13" height="13" style="vertical-align:-2px" viewBox')}</span>`:''}</td>
       <td><span class="bdg s-${f.estado}">${esc(f.estado||'—')}</span></td>
-      <td class="r">${confHTML(f.confianza_extraccion)}</td>
     </tr>`;
   }).join('');
   return `<div class="tbl-wrap"><table><thead><tr>
@@ -484,7 +483,6 @@ function tablaFacturas(ff,full){
     ${full?th('prov','Proveedor'):'<th>Proveedor</th>'}
     ${full?th('total','Total',1):'<th class="r">Total</th>'}
     <th>Estado</th>
-    ${full?th('conf','Conf. IA',1):'<th class="r">Conf.</th>'}
   </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -535,17 +533,15 @@ function viewProveedores(){
   if(!provs.length)return`<div class="card"><div class="empty">${svg(ICN.inbox)}<p>Sin proveedores</p></div></div>`;
   const maxImp=provs[0].imp||1;
   const rows=provs.map(p=>{
-    const conf=p.conf.length?Math.round(p.conf.reduce((a,b)=>a+b,0)/p.conf.length*100):null;
     return `<tr data-prov="${esc(p.nombre)}">
       <td><div class="prov-cell"><div class="prov-av">${initials(p.nombre)}</div><div><div class="cell-strong">${esc(p.nombre)}</div>${p.nif?`<div class="mono" style="font-size:11px;color:var(--faint)">${esc(p.nif)}</div>`:''}</div></div></td>
       <td class="r cell-strong">${p.num}</td>
       <td class="r"><div style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><div class="rank-bar" style="width:90px;margin:0"><div class="rank-fill" style="width:${Math.round(p.imp/maxImp*100)}%"></div></div><b>${eur(p.imp)}</b></div></td>
-      <td class="r">${conf!=null?confHTML(conf/100):'—'}</td>
       <td class="r" style="color:var(--faint)">${svg('<polyline points="9 18 15 12 9 6"/>').replace('viewBox','width="15" height="15" viewBox')}</td>
     </tr>`;
   }).join('');
   return `<div class="card"><div class="card-h"><div class="card-t">${svg('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/>')}Proveedores</div><span class="card-meta">${provs.length} activos · clic para ver detalle</span></div>
-  <div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th class="r">Facturas</th><th class="r">Importe total</th><th class="r">Confianza media</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  <div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th class="r">Facturas</th><th class="r">Importe total</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 function viewProveedorDetalle(nombre){
   const p=statsProveedores().find(x=>x.nombre===nombre);
@@ -569,7 +565,6 @@ function viewProveedorDetalle(nombre){
       <div style="display:flex;gap:28px;margin-top:18px;flex-wrap:wrap">
         <div><div style="font-size:22px;font-weight:800">${p.num}</div><div style="font-size:12px;opacity:.85">facturas</div></div>
         <div><div style="font-size:22px;font-weight:800">${eur(media)}</div><div style="font-size:12px;opacity:.85">importe medio</div></div>
-        <div><div style="font-size:22px;font-weight:800">${conf!=null?conf+'%':'—'}</div><div style="font-size:12px;opacity:.85">confianza media</div></div>
         <div><div style="font-size:22px;font-weight:800">${ultima}</div><div style="font-size:12px;opacity:.85">última factura</div></div>
       </div>
     </div>
@@ -617,10 +612,10 @@ async function openDrawer(id){
     ${(f.forma_pago_factura||f.plazo_pago_factura)?`<div class="dr-sec"><div class="dr-sec-t">${svg(ICN.card)}Pago</div><div class="kv"><div class="kv-item"><div class="k">Forma de pago</div><div class="v">${esc(f.forma_pago_factura||'—')}</div></div><div class="kv-item"><div class="k">Plazo</div><div class="v">${esc(f.plazo_pago_factura||'—')}</div></div></div></div>`:''}
     ${(f.direccion_fiscal_detectada||f.delegacion_detectada)?`<div class="dr-sec"><div class="dr-sec-t">${svg(ICN.pin)}Direcciones</div><div class="kv one"><div class="kv-item"><div class="k">Dirección fiscal detectada</div><div class="v" style="font-weight:500;font-size:13px">${esc(f.direccion_fiscal_detectada||'—')}</div></div>${f.delegacion_detectada?`<div class="kv-item"><div class="k">Delegación</div><div class="v">${esc(f.delegacion_detectada)}</div></div>`:''}</div></div>`:''}
     <div class="dr-sec">
-      <div class="dr-sec-t">${svg(ICN.bot)}Calidad de extracción IA</div>
+      <div class="dr-sec-t">${svg(ICN.bot)}Clasificación IA</div>
       <div class="kv">
-        <div class="kv-item"><div class="k">Confianza</div><div class="v">${confHTML(f.confianza_extraccion)}</div></div>
         <div class="kv-item"><div class="k">Tipo documento</div><div class="v">${esc(f.tipo_documento_ia||'—')}</div></div>
+        <div class="kv-item"><div class="k">Estado de validación</div><div class="v"><span class="bdg s-${f.estado}">${esc(f.estado||'—')}</span></div></div>
       </div>
     </div>
     <div class="dr-sec">
@@ -693,4 +688,3 @@ setInterval(loadAll,5*60*1000);
 </script>
 </body>
 </html>
-<!-- updated 2026-06-03 12:38:25 -->
