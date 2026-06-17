@@ -311,7 +311,7 @@ const TOL=2; // tolerancia diferencia importe (€)
 
 const state={view:'resumen',dias:0,facturas:[],incidencias:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
 let chartMes=null;
-const PEND=['ILEGIBLE','DUPLICADO_PENDIENTE','EN_REVISION','PENDIENTE_CRITERIO','PENDIENTE'];
+const PEND=['ILEGIBLE','EN_REVISION'];
 
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
@@ -367,11 +367,11 @@ function deriveIncidencias(ff){
     const dif=f.diferencia_importe!=null?+f.diferencia_importe:null;
     const conf=f.confianza_extraccion!=null?+f.confianza_extraccion:null;
     if(f.estado==='ILEGIBLE')
-      out.push({factura_id:f.id,codigo_validacion:'EX01',tipo:'BLOQUEANTE',estado:'ABIERTA',descripcion:'Documento ilegible: la IA no ha podido extraer datos fiables'});
+      out.push({factura_id:f.id,codigo_validacion:'EX01',tipo:'INCIDENCIA',estado:'ABIERTA',descripcion:'Documento ilegible: la IA no ha podido extraer datos fiables'});
     if(f.es_duplicado||f.estado==='DUPLICADO_PENDIENTE')
-      out.push({factura_id:f.id,codigo_validacion:'V07',tipo:'BLOQUEANTE',estado:'ABIERTA',descripcion:'Factura duplicada: mismo proveedor y número de factura ya registrado',dato_esperado:'Factura única',dato_recibido:f.numero_factura+' repetida'});
+      out.push({factura_id:f.id,codigo_validacion:'V07',tipo:'INCIDENCIA',estado:'ABIERTA',descripcion:'Factura duplicada: mismo proveedor y número de factura ya registrado',dato_esperado:'Factura única',dato_recibido:f.numero_factura+' repetida'});
     if(conf!=null&&conf<0.60&&f.estado!=='ILEGIBLE')
-      out.push({factura_id:f.id,codigo_validacion:'EX01',tipo:'BLOQUEANTE',estado:'ABIERTA',descripcion:'Confianza de extracción por debajo del umbral (0,60)',dato_esperado:'≥ 60%',dato_recibido:Math.round(conf*100)+'%'});
+      out.push({factura_id:f.id,codigo_validacion:'EX01',tipo:'INCIDENCIA',estado:'ABIERTA',descripcion:'Confianza de extracción por debajo del umbral (0,60)',dato_esperado:'≥ 60%',dato_recibido:Math.round(conf*100)+'%'});
     if(dif!=null&&Math.abs(dif)>TOL)
       out.push({factura_id:f.id,codigo_validacion:'V13',tipo:'INCIDENCIA',estado:'ABIERTA',descripcion:'Diferencia de importe superior a la tolerancia de 2 €',dato_esperado:eur(f.total_calculado),dato_recibido:eur(f.total_factura)});
     else if(dif!=null&&Math.abs(dif)>0.009)
@@ -417,7 +417,7 @@ function render(){
 function metrics(ff){
   const importe=ff.reduce((s,f)=>s+(+f.total_factura||0),0);
   const revision=ff.filter(f=>PEND.includes(f.estado)).length;
-  const validadas=ff.filter(f=>['VALIDADA','COMPLETADA','EXPORTADA'].includes(f.estado)).length;
+  const validadas=ff.filter(f=>['VALIDADA','EXPORTADA'].includes(f.estado)).length;
   return{total:ff.length,importe,revision,validadas};
 }
 function facturasPendientes(){
@@ -467,7 +467,7 @@ function colaTrabajo(ff){
 function filtradas(){
   let ff=state.facturas.slice();
   if(state.quickFilter==='revision')ff=ff.filter(f=>PEND.includes(f.estado));
-  else if(state.quickFilter==='validadas')ff=ff.filter(f=>['VALIDADA','COMPLETADA','EXPORTADA'].includes(f.estado));
+  else if(state.quickFilter==='validadas')ff=ff.filter(f=>['VALIDADA','EXPORTADA'].includes(f.estado));
   else if(state.quickFilter==='mes'){const n=new Date();ff=ff.filter(f=>{const d=new Date(f.fecha_factura||f.fecha_recepcion);return !isNaN(d)&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});}
   if(state.fProv)ff=ff.filter(f=>nombreProv(f)===state.fProv);
   if(state.fEstado)ff=ff.filter(f=>f.estado===state.fEstado);
@@ -541,12 +541,12 @@ function tablaFacturas(ff,full){
 function viewIncidencias(){
   const inc=state.incidencias;
   const ab=inc.filter(i=>i.estado==='ABIERTA').length;
-  const blo=inc.filter(i=>i.tipo==='BLOQUEANTE').length;
-  const av=inc.filter(i=>i.tipo==='AVISO').length;
+  const blo=inc.filter(i=>i.estado==='ABIERTA'&&i.tipo==='INCIDENCIA').length;
+  const av=inc.filter(i=>i.estado==='ABIERTA'&&i.tipo==='AVISO').length;
   const kpi=(ic,cls,v,l)=>`<div class="kpi"><div class="kpi-top"><div class="kpi-ic ${cls}">${svg(ic)}</div></div><div class="kpi-val">${v}</div><div class="kpi-lbl">${l}</div></div>`;
   return `<div class="kpis" style="grid-template-columns:repeat(3,1fr)">
     ${kpi(ICN.alert,'amber',ab,'Incidencias abiertas')}
-    ${kpi(ICN.alert,'red',blo,'Bloqueantes')}
+    ${kpi(ICN.alert,'red',blo,'A revisar')}
     ${kpi(ICN.info,'blue',av,'Avisos informativos')}
   </div>
   <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.alert)}Todas las incidencias</div><span class="card-meta">${inc.length} registros</span></div>${listaIncidencias(inc)}</div>`;
@@ -722,33 +722,18 @@ function openLegend(){
   const inc=(t,txt)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line-2)"><span class="bdg t-${t}" style="flex-shrink:0">${t}</span><span style="font-size:13px;color:var(--ink-2);padding-top:1px">${txt}</span></div>`;
   $('#dr-body').innerHTML=`
     <div class="dr-sec">
-      <div class="dr-sec-t">${svg(ICN.check)}Correctas</div>
-      ${it('VALIDADA','Pasó todas las comprobaciones automáticas. Lista para contabilizar.')}
-      ${it('EXPORTADA','Registrada en AS400. (cuando haya conexión)')}
-      ${it('COMPLETADA','Proceso terminado de principio a fin.')}
+      <div class="dr-sec-t">${svg(ICN.file)}Estado de la factura</div>
+      ${it('VALIDADA','Correcta y lista para contabilizar. Pasó todas las comprobaciones automáticas.')}
+      ${it('EN_REVISION','Necesita que una persona la mire. El motivo indica por qué (importes, dirección, duplicado, sin pedido…).')}
+      ${it('ILEGIBLE','La IA no pudo leer el documento (foto borrosa o mal escaneada). Reenviar o introducir a mano.')}
+      ${it('RECHAZADA','Descartada: no es una factura válida o se rechazó en revisión. Estado final.')}
+      ${it('EXPORTADA','Registrada en AS400. <span style="color:var(--faint)">(disponible cuando se conecte AS400)</span>')}
     </div>
     <div class="dr-sec">
-      <div class="dr-sec-t">${svg(ICN.alert)}Requieren a una persona</div>
-      ${it('EN_REVISION','Algo no cuadra: importes, confianza o dirección. María debe revisarla.')}
-      ${it('PENDIENTE_CRITERIO','Falta un criterio que solo una persona puede decidir (ej. proveedor sin pedido).')}
-      ${it('DUPLICADO_PENDIENTE','Posible factura duplicada. Confirmar antes de procesar.')}
-      ${it('PENDIENTE','Pendiente de una acción manual.')}
-    </div>
-    <div class="dr-sec">
-      <div class="dr-sec-t">${svg(ICN.alert)}No se pueden procesar</div>
-      ${it('ILEGIBLE','La IA no pudo leer el documento (foto borrosa, escaneo malo). Reenviar o introducir a mano.')}
-      ${it('RECHAZADA','Descartada: no es una factura válida o rechazada en revisión.')}
-    </div>
-    <div class="dr-sec">
-      <div class="dr-sec-t">${svg(ICN.list)}En proceso</div>
-      ${it('PROCESANDO','La IA está extrayendo los datos en este momento.')}
-      ${it('RECIBIDA','Leída y guardada, pendiente de validar.')}
-    </div>
-    <div class="dr-sec">
-      <div class="dr-sec-t">${svg(ICN.alert)}Tipos de aviso</div>
-      ${inc('AVISO','Informativo, no bloquea (ej. diferencia de importe menor de 2€).')}
-      ${inc('INCIDENCIA','Algo a revisar antes de dar por buena la factura.')}
-      ${inc('BLOQUEANTE','Impide procesar la factura hasta resolverlo.')}
+      <div class="dr-sec-t">${svg(ICN.alert)}Nivel del aviso</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Cada factura en revisión lleva uno o varios avisos que explican el motivo:</div>
+      ${inc('AVISO','Informativo, no bloquea. Ej.: diferencia de importe menor de 2€.')}
+      ${inc('INCIDENCIA','Hay que revisarla antes de darla por buena.')}
     </div>`;
   $('#dr-body').scrollTop=0;
 }
