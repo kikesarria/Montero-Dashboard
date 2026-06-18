@@ -776,40 +776,37 @@ $('#btn-leyenda').onclick=openLegend;
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 
 // Desglose de IVA por tipo (con fallback al IVA simple de la factura)
-function desgloseIVA(f){
+// Texto compacto con todos los tipos de IVA de la factura en una sola celda
+// Ej: "21%: 836,00/175,56" o si hay varios: "21%: 600,00/126,00 | 10%: 200,00/20,00"
+function desgloseIVATexto(f){
   const ia=f.json_extraccion_ia||{};
-  const d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
-  const get=t=>d.find(x=>Math.round(+x.tipo)===t)||null;
-  let b21=get(21),b10=get(10),bex=d.find(x=>Math.round(+x.tipo)===0);
-  // fallback: si no hay desglose, usar el IVA único de la factura
-  if(!d.length){
-    const p=Math.round(+f.porcentaje_iva||0);
-    if(p===21) b21={base:f.base_imponible,cuota:f.importe_iva};
-    else if(p===10) b10={base:f.base_imponible,cuota:f.importe_iva};
-    else if(p===0) bex={base:f.base_imponible};
-  }
-  return {
-    base21:b21?.base??'', cuota21:b21?.cuota??'',
-    base10:b10?.base??'', cuota10:b10?.cuota??'',
-    baseExento:bex?.base??''
-  };
+  let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
+  if(!d.length) d=[{tipo:f.porcentaje_iva||0, base:f.base_imponible, cuota:f.importe_iva}];
+  return d.map(x=>{
+    const t=Math.round(+x.tipo);
+    const lbl=t===0?'Exento':t+'%';
+    const base=(+x.base||0).toFixed(2).replace('.',',');
+    const cuota=x.cuota!=null?(+x.cuota).toFixed(2).replace('.',','):'0,00';
+    return t===0?`${lbl}: ${base}`:`${lbl}: ${base}/${cuota}`;
+  }).join(' | ');
 }
 function exportCSV(){
   const ff=state.view==='facturas'?filtradas():state.facturas;
-  const head=['Cod. Proveedor','Proveedor','NIF/CIF','Nº Factura','Fecha Factura','Ambito IVA','Delegacion',
-    'Base 21%','Cuota 21%','Base 10%','Cuota 10%','Base Exento','Total Factura','Estado','Nº Pedido'];
+  // Datos identificativos completos: proveedor (código+nombre+NIF), factura (num+fecha),
+  // pedido, albaranes (10 huecos), ambito/delegacion a efectos de IVA, desglose IVA en 1 columna, total, estado.
+  const head=['Cod. Proveedor','Proveedor','NIF/CIF','Nº Factura','Fecha Factura','Nº Pedido',
+    'Ambito IVA','Delegacion','Desglose IVA (base/cuota)','Base Imponible Total','Total Factura','Estado'];
   for(let i=1;i<=10;i++) head.push('Albaran '+i);
   const rows=ff.map(f=>{
     const ia=f.json_extraccion_ia||{};
     const prov=ia.proveedor||{};
-    const g=desgloseIVA(f);
     const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
     const row=[
       prov.codigo_si_aparece||'', nombreProv(f), nifProv(f)||'',
       f.numero_factura||'', dt(f.fecha_factura||f.fecha_recepcion),
+      (ia._pedido&&ia._pedido.numero)||f.numero_pedido_asociado||'',
       ia._ambito_iva||'NACIONAL', ia._delegacion||f.delegacion_detectada||'',
-      g.base21, g.cuota21, g.base10, g.cuota10, g.baseExento,
-      f.total_factura||'', f.estado||'', (ia._pedido&&ia._pedido.numero)||f.numero_pedido_asociado||''
+      desgloseIVATexto(f), f.base_imponible||'', f.total_factura||'', f.estado||''
     ];
     for(let i=0;i<10;i++) row.push(albs[i]||'');
     return row;
