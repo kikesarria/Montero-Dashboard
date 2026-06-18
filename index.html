@@ -432,13 +432,13 @@ function motivoDe(id){
 /* ---------- RESUMEN (centro de trabajo) ---------- */
 function viewResumen(){
   const m=metrics(state.facturas);
-  const incAb=state.incidencias.filter(i=>i.estado==='ABIERTA').length;
   const pend=facturasPendientes();
+  const pctAuto=m.total?Math.round(m.validadas/m.total*100):0;
   const kpi=(ic,cls,val,lbl,extra='')=>`<div class="kpi ${extra}"><div class="kpi-top"><div class="kpi-ic ${cls}">${svg(ic)}</div></div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
   return `
   <div class="kpis">
+    ${kpi(ICN.check,'green',`${pctAuto}%`,`Validadas en automático (${m.validadas} de ${m.total})`,'clk" data-go="validadas')}
     ${kpi(ICN.alert,'amber',m.revision,'Requieren revisión','clk" data-go="revision')}
-    ${kpi(ICN.alert,'red',incAb,'Incidencias abiertas','clk" data-go="incidencias')}
     ${kpi(ICN.file,'blue',m.total,'Facturas en el periodo')}
     ${kpi(ICN.euro,'green',eurS(m.importe),'Importe total')}
   </div>
@@ -757,7 +757,7 @@ function drawCharts(){
 function bindContent(){
   document.querySelectorAll('tbody tr[data-id]').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.id));
   document.querySelectorAll('.inc[data-id]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.id));
-  document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(g==='revision'){setView('facturas');state.quickFilter='revision';render();}else setView(g);});
+  document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(g==='revision'||g==='validadas'){setView('facturas');state.quickFilter=g;render();}else setView(g);});
   document.querySelectorAll('[data-chip]').forEach(el=>el.onclick=()=>{state.quickFilter=el.dataset.chip;render();});
   document.querySelectorAll('tbody tr[data-prov]').forEach(tr=>tr.onclick=()=>{state.provSel=tr.dataset.prov;render();});
   const back=$('#prov-back');if(back)back.onclick=()=>{state.provSel=null;render();};
