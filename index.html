@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --red:#C8102E; --red-d:#a30d25; --red-soft:#fdecef;
@@ -771,7 +772,7 @@ document.querySelectorAll('.nav-item').forEach(b=>b.onclick=()=>setView(b.datase
 $('#period').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('#period').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.dias=+b.dataset.d;loadAll();});
 $('#ov').onclick=closeDrawer;
 $('#btn-refresh').onclick=loadAll;
-$('#btn-export').onclick=exportCSV;
+$('#btn-export').onclick=exportExcel;
 $('#btn-leyenda').onclick=openLegend;
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 
@@ -790,13 +791,11 @@ function desgloseIVATexto(f){
     return t===0?`${lbl}: ${base}`:`${lbl}: ${base}/${cuota}`;
   }).join(' | ');
 }
-function exportCSV(){
+function exportExcel(){
   const ff=state.view==='facturas'?filtradas():state.facturas;
-  // Datos identificativos completos: proveedor (código+nombre+NIF), factura (num+fecha),
-  // pedido, albaranes (10 huecos), ambito/delegacion a efectos de IVA, desglose IVA en 1 columna, total, estado.
-  const head=['Cod. Proveedor','Proveedor','NIF/CIF','Nº Factura','Fecha Factura','Nº Pedido',
-    'Ambito IVA','Delegacion','Desglose IVA (base/cuota)','Base Imponible Total','Total Factura','Estado'];
-  for(let i=1;i<=10;i++) head.push('Albaran '+i);
+  const head=['Cod. Proveedor','Proveedor','NIF','Nº Factura','Fecha Factura','Nº Pedido',
+    'Ámbito IVA','Delegación','Desglose IVA','Base Imponible','Total Factura','Estado'];
+  for(let i=1;i<=20;i++) head.push('Albarán '+i);
   const rows=ff.map(f=>{
     const ia=f.json_extraccion_ia||{};
     const prov=ia.proveedor||{};
@@ -808,12 +807,15 @@ function exportCSV(){
       ia._ambito_iva||'NACIONAL', ia._delegacion||f.delegacion_detectada||'',
       desgloseIVATexto(f), f.base_imponible||'', f.total_factura||'', f.estado||''
     ];
-    for(let i=0;i<10;i++) row.push(albs[i]||'');
+    for(let i=0;i<20;i++) row.push(albs[i]||'');
     return row;
   });
-  const csv=[head,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
-  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`AS400_facturas_montero_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+  const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
+  ws['!cols']=[{wch:14},{wch:20},{wch:12},{wch:13},{wch:14},{wch:12},
+              {wch:14},{wch:14},{wch:18},{wch:14},{wch:13},{wch:12},...Array(20).fill({wch:12})];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Facturas');
+  XLSX.writeFile(wb,`AS400_facturas_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 loadAll();
