@@ -794,25 +794,29 @@ function desgloseIVATexto(f){
 function exportExcel(){
   const ff=state.view==='facturas'?filtradas():state.facturas;
   const head=['Cod. Proveedor','Proveedor','NIF','Nº Factura','Fecha Factura','Nº Pedido',
-    'Ámbito IVA','Delegación','Desglose IVA','Base Imponible','Total Factura','Estado'];
+    'Ámbito IVA','Delegación','Base Imponible IVA','Tipo IVA','Cuota IVA','Total Factura','Estado'];
   for(let i=1;i<=20;i++) head.push('Albarán '+i);
   const rows=ff.map(f=>{
     const ia=f.json_extraccion_ia||{};
     const prov=ia.proveedor||{};
     const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
+    let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
+    if(!d.length) d=[{tipo:f.porcentaje_iva||0, base:f.base_imponible, cuota:f.importe_iva}];
+    const iva=d[0]||{};
     const row=[
       prov.codigo_si_aparece||'', nombreProv(f), nifProv(f)||'',
       f.numero_factura||'', dt(f.fecha_factura||f.fecha_recepcion),
       (ia._pedido&&ia._pedido.numero)||f.numero_pedido_asociado||'',
       ia._ambito_iva||'NACIONAL', ia._delegacion||f.delegacion_detectada||'',
-      desgloseIVATexto(f), f.base_imponible||'', f.total_factura||'', f.estado||''
+      iva.base||'', (Math.round(+iva.tipo)||0)+'%', iva.cuota||'',
+      f.total_factura||'', f.estado||''
     ];
     for(let i=0;i<20;i++) row.push(albs[i]||'');
     return row;
   });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
   ws['!cols']=[{wch:14},{wch:20},{wch:12},{wch:13},{wch:14},{wch:12},
-              {wch:14},{wch:14},{wch:18},{wch:14},{wch:13},{wch:12},...Array(20).fill({wch:12})];
+              {wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:13},{wch:12},...Array(20).fill({wch:12})];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Facturas');
   XLSX.writeFile(wb,`AS400_facturas_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
