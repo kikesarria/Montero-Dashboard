@@ -241,6 +241,29 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.err{background:var(--rd)}
 
+/* ===== LOGIN OVERLAY ===== */
+#login-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);z-index:500;display:flex;align-items:center;justify-content:center}
+#login-overlay.hidden{display:none}
+.login-box{background:#fff;border-radius:18px;box-shadow:0 24px 60px rgba(16,24,40,.18);padding:40px 36px;width:100%;max-width:380px}
+.login-logo{text-align:center;margin-bottom:24px}
+.login-logo img{width:140px;height:auto;border-radius:8px}
+.login-h{font-size:20px;font-weight:800;color:var(--ink);text-align:center;margin-bottom:4px}
+.login-sub{font-size:13px;color:var(--faint);text-align:center;margin-bottom:28px}
+.login-field{margin-bottom:16px}
+.login-field label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+.login-field input{width:100%;height:42px;border:1.5px solid var(--line);border-radius:9px;padding:0 13px;font-size:14px;font-family:inherit;color:var(--ink);outline:none;transition:.15s}
+.login-field input:focus{border-color:var(--red)}
+.login-btn{width:100%;height:44px;background:var(--red);color:#fff;border-radius:9px;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;border:none;margin-top:8px;transition:.15s}
+.login-btn:hover{background:var(--red-d)}
+.login-btn:disabled{opacity:.6;cursor:not-allowed}
+.login-err{font-size:12.5px;color:var(--rd);font-weight:600;text-align:center;margin-top:12px;min-height:18px}
+
+/* ===== LOGOUT BTN ===== */
+.logout-btn{display:flex;align-items:center;gap:7px;width:100%;padding:8px 10px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--muted);transition:.13s;cursor:pointer;border:none;background:none;margin-top:8px}
+.logout-btn:hover{background:var(--rd-s);color:var(--rd)}
+.logout-btn svg{width:15px;height:15px;flex-shrink:0}
+.user-email{font-size:11px;color:var(--faint);margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 @media(max-width:1000px){
   .app{grid-template-columns:64px 1fr}
   .brand .bt,.brand .bs,.nav-lbl,.nav-item span,.nav-item .ct,.side-foot{display:none}
@@ -256,6 +279,28 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
 </style>
 </head>
 <body>
+
+<!-- LOGIN OVERLAY -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAoAFADASIAAhEBAxEB/8QAGwAAAwEBAQEBAAAAAAAAAAAAAQIDBAUABgf/xAAtEAABBAEDBAEDBAMAAAAAAAABAAIDBBEFITESQVFhcRMigZEGFCOhwdH/xAAXAQEBAQEAAAAAAAAAAAAAAAABAAID/8QAGREBAQEBAQEAAAAAAAAAAAAAABEBEiEx/9oADAMBAAIRAxEAPwD9VQhCATEJiUwWAhCEAhCEAhCEAhCEAhCEAhcVNRFTQGSuzuds0Dkkqq0vEt+dOuVhPmEr0J/1GlYuNYnJWqgqlpKSrqJGxxjLnHYKwq1V0PEVVBTmKRzZpGDaZ8bSHAe+D2r/AAbG3awY88gr3k1ZOpGYm96bNM4ZbGNh6Ln1Bqt3M0FV01oqICyIkZ3yT7/AG7VisrKMPi1uUiV1EXMcNMG4cdgb8Eu2wchQ1arKmpIiNVDzuyh6WJnhJN6LFqyTKUqsklCqgppVtFaM9WTXpf0qJK02GikE9Hm3ZlHMkHBQhfMvqz0kpPWY2bKX0pCdqQhc31W4lCEL//2Q==" alt="Montero" style="width:120px;border-radius:8px">
+    </div>
+    <div class="login-h">Acceso al panel</div>
+    <div class="login-sub">Gestión de facturas · Montero Alquiler</div>
+    <div class="login-field">
+      <label for="l-email">Correo electrónico</label>
+      <input type="email" id="l-email" placeholder="usuario@montero.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label for="l-pass">Contraseña</label>
+      <input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="login-btn" id="l-btn" onclick="doLogin()">Entrar</button>
+    <div class="login-err" id="l-err"></div>
+  </div>
+</div>
+
 <div class="app">
 
   <!-- SIDEBAR -->
@@ -270,7 +315,11 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
       <button class="nav-item" data-view="incidencias"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>Incidencias</span><span class="ct" id="nav-inc">0</span></button>
       <button class="nav-item" data-view="proveedores"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/></svg><span>Proveedores</span><span class="ct" id="nav-prov">0</span></button>
     </nav>
-    <div class="side-foot"><span class="dot" id="conn-dot"></span><span id="conn-txt">Conectado</span></div>
+    <div class="side-foot">
+      <div class="user-email" id="user-email-lbl"></div>
+      <button class="logout-btn" onclick="doLogout()"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Cerrar sesión</button>
+      <div style="margin-top:8px"><span class="dot" id="conn-dot"></span><span id="conn-txt">Conectado</span></div>
+    </div>
   </aside>
 
   <!-- MAIN -->
@@ -307,8 +356,67 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
 
 <script>
 const SB_URL='https://kehamwcxejrgaqsjlhig.supabase.co';
-const SB_KEY='sb_publishable_F1FUs8KYchT2TovpN_Tdjg_o_4yIHAW';
+const SB_ANON='sb_publishable_F1FUs8KYchT2TovpN_Tdjg_o_4yIHAW';
 const TOL=2; // tolerancia diferencia importe (€)
+
+/* ---------- auth ---------- */
+const SESSION_KEY='mb_session';
+let _session=null;
+
+function saveSession(s){_session=s;try{localStorage.setItem(SESSION_KEY,JSON.stringify(s));}catch(e){}}
+function clearSession(){_session=null;try{localStorage.removeItem(SESSION_KEY);}catch(e){}}
+function loadSession(){try{const s=localStorage.getItem(SESSION_KEY);if(s)_session=JSON.parse(s);}catch(e){}}
+function getToken(){return _session?.access_token||null;}
+
+async function doLogin(){
+  const email=$('#l-email').value.trim();
+  const pass=$('#l-pass').value;
+  const btn=$('#l-btn');
+  $('#l-err').textContent='';
+  if(!email||!pass){$('#l-err').textContent='Introduce correo y contraseña.';return;}
+  btn.disabled=true;btn.textContent='Entrando…';
+  try{
+    const r=await fetch(`${SB_URL}/auth/v1/token?grant_type=password`,{
+      method:'POST',
+      headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+      body:JSON.stringify({email,password:pass})
+    });
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error_description||data.msg||'Credenciales incorrectas');
+    saveSession(data);
+    showApp();
+    loadAll();
+  }catch(e){
+    $('#l-err').textContent=e.message||'Error de conexión';
+  }finally{
+    btn.disabled=false;btn.textContent='Entrar';
+  }
+}
+
+async function refreshToken(){
+  if(!_session?.refresh_token)return false;
+  try{
+    const r=await fetch(`${SB_URL}/auth/v1/token?grant_type=refresh_token`,{
+      method:'POST',
+      headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+      body:JSON.stringify({refresh_token:_session.refresh_token})
+    });
+    if(!r.ok)return false;
+    const data=await r.json();
+    saveSession(data);
+    return true;
+  }catch(e){return false;}
+}
+
+async function doLogout(){
+  if(_session?.access_token){
+    try{await fetch(`${SB_URL}/auth/v1/logout`,{method:'POST',headers:{'apikey':SB_ANON,'Authorization':`Bearer ${_session.access_token}`}});}catch(e){}
+  }
+  clearSession();showLogin();
+}
+
+function showLogin(){$('#login-overlay').classList.remove('hidden');$('#l-email').value='';$('#l-pass').value='';$('#l-err').textContent='';}
+function showApp(){$('#login-overlay').classList.add('hidden');const em=_session?.user?.email||'';$('#user-email-lbl').textContent=em;}
 
 const state={view:'resumen',dias:0,facturas:[],incidencias:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
 let chartMes=null;
@@ -342,7 +450,8 @@ function confHTML(v){if(v==null)return'<span style="color:var(--faint)">—</spa
 
 /* ---------- data ---------- */
 async function api(path){
-  const r=await fetch(`${SB_URL}/rest/v1/${path}`,{headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+  const tok=getToken()||SB_ANON;
+  const r=await fetch(`${SB_URL}/rest/v1/${path}`,{headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`}});
   if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
   return r.json();
 }
@@ -703,7 +812,8 @@ async function resolverFactura(id,nuevoEstado){
   const ia=Object.assign({},f.json_extraccion_ia||{});
   ia._revision={accion:nuevoEstado,fecha:new Date().toISOString(),por:'Panel'};
   try{
-    const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({estado:nuevoEstado,json_extraccion_ia:ia})});
+    const tok=getToken()||SB_ANON;
+    const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({estado:nuevoEstado,json_extraccion_ia:ia})});
     const data=await r.json().catch(()=>[]);
     if(!r.ok||!Array.isArray(data)||!data.length)throw new Error('no_persistido');
     closeDrawer();toast(nuevoEstado==='VALIDADA'?'Factura validada':'Factura rechazada');await loadAll();
@@ -822,8 +932,22 @@ function exportExcel(){
   XLSX.writeFile(wb,`AS400_facturas_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-loadAll();
-setInterval(loadAll,5*60*1000);
+/* ---------- init ---------- */
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!$('#login-overlay').classList.contains('hidden'))doLogin();
+});
+
+loadSession();
+if(getToken()){showApp();loadAll();}else{showLogin();}
+setInterval(async()=>{
+  if(!getToken())return;
+  const exp=_session?.expires_at;
+  if(exp&&(exp-Date.now()/1000)<300){
+    const ok=await refreshToken();
+    if(!ok){clearSession();showLogin();}
+  }
+  loadAll();
+},5*60*1000);
 </script>
 </body>
 </html>
