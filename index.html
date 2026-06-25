@@ -212,7 +212,7 @@ td.r{text-align:right}
 .mini-tbl td{padding:8px;border-bottom:1px solid var(--line-2);color:var(--ink-2)}
 .mini-tbl td.r{text-align:right;font-variant-numeric:tabular-nums}
 .doc-card{display:flex;align-items:center;gap:13px;padding:13px;background:var(--bg);border:1px solid var(--line);border-radius:11px}
-.doc-link{text-decoration:none;color:inherit;transition:.13s;cursor:pointer}
+.doc-link{text-decoration:none;color:inherit;transition:.13s;cursor:pointer;width:100%}
 .doc-link:hover{border-color:var(--red);background:var(--red-soft);box-shadow:var(--shadow)}
 .doc-card.disabled{opacity:.75}
 .doc-open{display:flex;align-items:center;gap:6px;color:var(--red);font-weight:600;font-size:12.5px;flex-shrink:0;padding:6px 10px;border:1px solid var(--red);border-radius:8px}
@@ -456,6 +456,26 @@ async function api(path){
   const r=await fetch(`${SB_URL}/rest/v1/${path}`,{headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`}});
   if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
   return r.json();
+}
+async function openPdf(docUrl){
+  if(!docUrl)return;
+  const parts=docUrl.split('/facturas/');
+  const filePath=parts[1]||docUrl.split('/').pop();
+  try{
+    const tok=getToken();
+    const r=await fetch(`${SB_URL}/storage/v1/object/sign/facturas/${filePath}`,{
+      method:'POST',
+      headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json'},
+      body:JSON.stringify({expiresIn:3600})
+    });
+    if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();
+    const signed=d.signedUrl||d.signedURL;
+    if(signed)window.open(signed,'_blank','noopener');
+    else throw new Error('No signed URL returned');
+  }catch(e){
+    toast('No se pudo abrir el PDF: '+e.message);
+  }
 }
 function periodFilter(){if(!state.dias)return'';const d=new Date();d.setDate(d.getDate()-state.dias);return`&fecha_recepcion=gte.${d.toISOString()}`;}
 async function loadAll(){
@@ -801,7 +821,7 @@ async function openDrawer(id){
     <div class="dr-sec">
       <div class="dr-sec-t">${svg(ICN.file)}Documento original</div>
       ${docUrl
-        ?`<a class="doc-card doc-link" href="${esc(docUrl)}" target="_blank" rel="noopener"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">Factura ${esc(f.numero_factura||'')} (PDF original)</div><div class="doc-meta">Documento recibido por email · ${dtL(f.fecha_recepcion)}</div></div><div class="doc-open">${svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>')}<span>Abrir</span></div></a>`
+        ?`<button class="doc-card doc-link" onclick="openPdf(${JSON.stringify(docUrl)})"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">Factura ${esc(f.numero_factura||'')} (PDF original)</div><div class="doc-meta">Documento recibido por email · ${dtL(f.fecha_recepcion)}</div></div><div class="doc-open">${svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>')}<span>Abrir</span></div></button>`
         :`<div class="doc-card disabled"><div class="doc-ic" style="background:var(--line);color:var(--faint)">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm" style="color:var(--muted)">Documento no disponible</div><div class="doc-meta">El PDF original se adjuntará automáticamente cuando la factura llegue por email</div></div></div>`}
       <details class="raw"><summary>Ver datos extraídos (JSON)</summary><pre>${esc(JSON.stringify(f.json_extraccion_ia,null,2))}</pre></details>
     </div>`;
