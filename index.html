@@ -420,7 +420,9 @@ function showApp(){$('#login-overlay').classList.add('hidden');const em=_session
 
 const state={view:'resumen',dias:0,facturas:[],incidencias:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
 let chartMes=null;
-const PEND=['ILEGIBLE','EN_REVISION'];
+const PEND=['ILEGIBLE','EN_REVISION','DUPLICADO_PENDIENTE','PENDIENTE_CRITERIO'];
+const LABEL={VALIDADA:'Validada',EXPORTADA:'Exportada AS400',ILEGIBLE:'Ilegible',EN_REVISION:'En revisión',DUPLICADO_PENDIENTE:'Duplicado pendiente',PENDIENTE_CRITERIO:'Criterio pendiente',RECHAZADA:'Rechazada',COMPLETADA:'Completada'};
+const estadoLbl=e=>LABEL[e]||e||'—';
 
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
@@ -567,7 +569,7 @@ function colaTrabajo(ff){
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td class="r cell-strong">${eur(f.total_factura)}</td>
-      <td><span class="bdg s-${f.estado}">${esc(f.estado)}</span></td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span></td>
       <td style="max-width:300px;color:var(--muted);font-size:12.5px"><div class="trunc" style="max-width:300px">${esc(motivoDe(f.id))}</div></td>
     </tr>`).join('');
   return`<div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th>Nº Factura</th><th class="r">Total</th><th>Estado</th><th>Motivo</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -577,6 +579,7 @@ function colaTrabajo(ff){
 function filtradas(){
   let ff=state.facturas.slice();
   if(state.quickFilter==='revision')ff=ff.filter(f=>PEND.includes(f.estado));
+  else if(state.quickFilter==='duplicados')ff=ff.filter(f=>f.es_duplicado||f.estado==='DUPLICADO_PENDIENTE');
   else if(state.quickFilter==='validadas')ff=ff.filter(f=>['VALIDADA','EXPORTADA'].includes(f.estado));
   else if(state.quickFilter==='mes'){const n=new Date();ff=ff.filter(f=>{const d=new Date(f.fecha_factura||f.fecha_recepcion);return !isNaN(d)&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});}
   if(state.fProv)ff=ff.filter(f=>nombreProv(f)===state.fProv);
@@ -598,7 +601,7 @@ function viewFacturas(){
   const provs=[...new Set(state.facturas.map(nombreProv))].sort();
   const estados=[...new Set(state.facturas.map(f=>f.estado).filter(Boolean))].sort();
   const ff=filtradas();
-  const chips=[['','Todas'],['revision','Requieren revisión'],['validadas','Validadas'],['mes','Este mes']];
+  const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['validadas','Validadas'],['mes','Este mes']];
   return `<div class="card">
     <div class="chips-row">
       ${chips.map(([k,l])=>`<button class="chip ${(state.quickFilter||'')===k?'active':''}" data-chip="${k}">${l}</button>`).join('')}
@@ -606,7 +609,7 @@ function viewFacturas(){
     <div class="tbl-tools">
       <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor o NIF…" value="${esc(state.search)}"></div>
       <select class="sel" id="f-prov"><option value="">Todos los proveedores</option>${provs.map(p=>`<option ${p===state.fProv?'selected':''}>${esc(p)}</option>`).join('')}</select>
-      <select class="sel" id="f-estado"><option value="">Todos los estados</option>${estados.map(e=>`<option ${e===state.fEstado?'selected':''}>${esc(e)}</option>`).join('')}</select>
+      <select class="sel" id="f-estado"><option value="">Todos los estados</option>${estados.map(e=>`<option value="${esc(e)}" ${e===state.fEstado?'selected':''}>${esc(estadoLbl(e))}</option>`).join('')}</select>
       <span class="card-meta" style="margin-left:auto">${ff.length} resultado${ff.length!==1?'s':''}</span>
     </div>
     ${tablaFacturas(ff,true)}
@@ -635,7 +638,7 @@ function tablaFacturas(ff,full){
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="r cell-strong">${eur(f.total_factura)} ${warn?`<span title="Diferencia ${eur(dif)}" style="color:var(--rd)">${svg(ICN.alert).replace('viewBox','width="13" height="13" style="vertical-align:-2px" viewBox')}</span>`:''}</td>
-      <td><span class="bdg s-${f.estado}">${esc(f.estado||'—')}</span></td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span></td>
     </tr>`;
   }).join('');
   return `<div class="tbl-wrap"><table><thead><tr>
@@ -742,7 +745,7 @@ async function openDrawer(id){
   $('#ov').classList.add('open');$('#drawer').classList.add('open');
   const dif=f.diferencia_importe!=null?+f.diferencia_importe:null;
   const warn=dif!=null&&Math.abs(dif)>TOL;
-  $('#dr-head').innerHTML=`<div><div class="dr-title">${esc(f.numero_factura||'Factura')}</div><div class="dr-sub"><span class="bdg s-${f.estado}">${esc(f.estado||'—')}</span>${f.es_duplicado?'<span class="bdg s-DUPLICADO_PENDIENTE">Duplicado</span>':''}${f.exportada_as400?'<span class="bdg s-VALIDADA">Exportada AS400</span>':''}</div></div><button class="x" id="dr-close">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}</button>`;
+  $('#dr-head').innerHTML=`<div><div class="dr-title">${esc(f.numero_factura||'Factura')}</div><div class="dr-sub"><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${f.es_duplicado?'<span class="bdg s-DUPLICADO_PENDIENTE">Duplicado</span>':''}${f.exportada_as400?'<span class="bdg s-VALIDADA">Exportada AS400</span>':''}</div></div><button class="x" id="dr-close">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}</button>`;
   $('#dr-close').onclick=closeDrawer;
 
   const inc=state.incidencias.filter(i=>i.factura_id===id);
