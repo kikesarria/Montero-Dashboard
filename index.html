@@ -418,7 +418,7 @@ async function doLogout(){
 function showLogin(){$('#login-overlay').classList.remove('hidden');$('#l-email').value='';$('#l-pass').value='';$('#l-err').textContent='';}
 function showApp(){$('#login-overlay').classList.add('hidden');const em=_session?.user?.email||'';$('#user-email-lbl').textContent=em;}
 
-const state={view:'resumen',dias:0,facturas:[],incidencias:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
+const state={view:'resumen',dias:0,facturas:[],incidencias:[],proveedoresBD:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
 let chartMes=null;
 const PEND=['ILEGIBLE','EN_REVISION','DUPLICADO_PENDIENTE','PENDIENTE_CRITERIO'];
 const LABEL={VALIDADA:'Validada',EXPORTADA:'Exportada AS400',ILEGIBLE:'Ilegible',EN_REVISION:'En revisión',DUPLICADO_PENDIENTE:'Duplicado pendiente',PENDIENTE_CRITERIO:'Criterio pendiente',RECHAZADA:'Rechazada',COMPLETADA:'Completada'};
@@ -483,8 +483,17 @@ async function loadAll(){
   try{
     state.facturas=await api(`facturas_procesadas?select=*&order=fecha_recepcion.desc&limit=1000${periodFilter()}`);
   }catch(e){console.error(e);setConn(false,e.message);state.facturas=[];}
+  try{
+    state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable`);
+  }catch(e){console.error(e);state.proveedoresBD=[];}
   state.incidencias=deriveIncidencias(state.facturas);
   updateNav();render();
+}
+function cuentaContablePorNombre(nombre){
+  if(!nombre)return null;
+  const n=nombre.trim().toLowerCase();
+  const p=state.proveedoresBD.find(x=>(x.nombre||'').trim().toLowerCase()===n);
+  return p?p.cuenta_contable||null:null;
 }
 // Las incidencias se derivan de las validaciones aplicadas a cada factura
 function deriveIncidencias(ff){
@@ -949,7 +958,7 @@ function desgloseIVATexto(f){
 }
 function exportExcel(){
   const ff=state.view==='facturas'?filtradas():state.facturas;
-  const head=['Cod. Proveedor','Proveedor','NIF','Nº Factura','Fecha Factura','Nº Pedido',
+  const head=['Cod. Proveedor','Proveedor','NIF','Cuenta Contable','Nº Factura','Fecha Factura','Nº Pedido',
     'Ámbito IVA','Delegación','Base Imponible IVA','Tipo IVA','Cuota IVA','Total Factura','Estado'];
   for(let i=1;i<=20;i++) head.push('Albarán '+i);
   const rows=ff.map(f=>{
@@ -960,7 +969,7 @@ function exportExcel(){
     if(!d.length) d=[{tipo:f.porcentaje_iva||0, base:f.base_imponible, cuota:f.importe_iva}];
     const iva=d[0]||{};
     const row=[
-      prov.codigo_si_aparece||'', nombreProv(f), nifProv(f)||'',
+      prov.codigo_si_aparece||'', nombreProv(f), nifProv(f)||'', cuentaContablePorNombre(nombreProv(f))||'',
       f.numero_factura||'', dt(f.fecha_factura||f.fecha_recepcion),
       (ia._pedido&&ia._pedido.numero)||f.numero_pedido_asociado||'',
       ia._ambito_iva||'NACIONAL', ia._delegacion||f.delegacion_detectada||'',
@@ -971,7 +980,7 @@ function exportExcel(){
     return row;
   });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
-  ws['!cols']=[{wch:14},{wch:20},{wch:12},{wch:13},{wch:14},{wch:12},
+  ws['!cols']=[{wch:14},{wch:20},{wch:12},{wch:14},{wch:13},{wch:14},{wch:12},
               {wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:13},{wch:12},...Array(20).fill({wch:12})];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Facturas');
