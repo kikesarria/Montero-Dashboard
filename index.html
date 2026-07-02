@@ -6,8 +6,8 @@
 <title>Montero Alquiler · Gestión de Facturas</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <style>
 :root{
   --red:#C8102E; --red-d:#a30d25; --red-soft:#fdecef;
@@ -1012,9 +1012,17 @@ function exportExcel(){
   XLSX.writeFile(wb,`AS400_facturas_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-function exportAS400(){
-  const ff=state.view==='facturas'?filtradas():state.facturas;
-  if(!ff.length){toast('No hay facturas para exportar','err');return;}
+async function exportAS400(){
+  const btn=$('#btn-export-as400');
+  if(btn&&btn.disabled)return;
+  const base=state.view==='facturas'?filtradas():state.facturas;
+  const OK_EXPORT=['RECIBIDA','VALIDADA'];
+  const ff=base.filter(f=>OK_EXPORT.includes(f.estado)&&!f.exportada_as400&&!f.es_duplicado);
+  const excluidas=base.length-ff.length;
+  if(!ff.length){toast(base.length?'Nada nuevo que exportar: las facturas visibles ya están exportadas, rechazadas o pendientes de revisión':'No hay facturas para exportar','err');return;}
+  if(!confirm(`Se exportarán ${ff.length} factura${ff.length!==1?'s':''} a AS400 (solo recibidas/validadas y no exportadas antes).${excluidas?`\nSe excluyen ${excluidas} (ya exportadas, duplicadas, rechazadas o en revisión).`:''}\n\n¿Continuar?`))return;
+  if(btn)btn.disabled=true;
+  try{
   const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Cuenta Contable',
     'Nº Factura','Nº Pedido Montero','Ámbito IVA','Delegación',
     'Base Imponible','Tipo IVA','Cuota IVA','Total Factura'];
@@ -1047,7 +1055,8 @@ function exportAS400(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'AS400');
   XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
-  marcarExportadasAS400(ff.map(f=>f.id));
+  await marcarExportadasAS400(ff.map(f=>f.id));
+  }finally{if(btn)btn.disabled=false;}
 }
 async function marcarExportadasAS400(ids){
   if(!ids.length)return;
