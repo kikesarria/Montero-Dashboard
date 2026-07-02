@@ -892,7 +892,8 @@ async function guardarPedidoMontero(id){
   const val=($('#inp-pedido-montero')||{}).value||'';
   const tok=getToken()||SB_ANON;
   const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({numero_pedido_montero:val||null})});
-  if(!r.ok){toast('Error guardando el número de pedido','err');return;}
+  const data=await r.json().catch(()=>[]);
+  if(!r.ok||!Array.isArray(data)||!data.length){toast('No se pudo guardar — vuelve a iniciar sesión','err');return;}
   const f=state.facturas.find(x=>x.id===id);
   if(f)f.numero_pedido_montero=val||null;
   toast('Nº pedido guardado');
@@ -1051,8 +1052,11 @@ function exportAS400(){
 async function marcarExportadasAS400(ids){
   if(!ids.length)return;
   const tok=getToken()||SB_ANON;
-  const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=in.(${ids.join(',')})`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({exportada_as400:true})});
-  if(r.ok){ids.forEach(id=>{const f=state.facturas.find(x=>x.id===id);if(f)f.exportada_as400=true;});toast(`${ids.length} factura${ids.length!==1?'s':''} marcada${ids.length!==1?'s':''} como exportada${ids.length!==1?'s':''} a AS400`);render();}
+  const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=in.(${ids.join(',')})`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({exportada_as400:true})});
+  const data=await r.json().catch(()=>[]);
+  if(!r.ok||!Array.isArray(data)||!data.length){toast('Excel generado, pero no se pudieron marcar como exportadas — vuelve a iniciar sesión','err');return;}
+  data.forEach(row=>{const f=state.facturas.find(x=>x.id===row.id);if(f)f.exportada_as400=true;});
+  toast(`${data.length} factura${data.length!==1?'s':''} marcada${data.length!==1?'s':''} como exportada${data.length!==1?'s':''} a AS400`);render();
 }
 
 /* ---------- init ---------- */

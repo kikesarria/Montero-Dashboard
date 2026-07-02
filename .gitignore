@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Configuración local de Claude Code
+.claude/
+
+# Temporales
+*.tmp
+*.bak
