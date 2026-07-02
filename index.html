@@ -340,7 +340,8 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
         <button data-d="0" class="active">Todo</button>
       </div>
       <button class="ico-btn" id="btn-leyenda" title="Qué significa cada estado"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Leyenda</button>
-      <button class="ico-btn" id="btn-export"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Exportar</button>
+      <button class="ico-btn" id="btn-export"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Resumen</button>
+      <button class="ico-btn" id="btn-export-as400"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>AS400</button>
       <button class="ico-btn primary" id="btn-refresh"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Actualizar</button>
     </div>
     <div class="content" id="content"></div>
@@ -843,6 +844,19 @@ async function openDrawer(id){
       </div>
     </div>
     <div class="dr-sec">
+      <div class="dr-sec-t">${svg('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>')}Gestión interna</div>
+      <div class="kv">
+        <div class="kv-item" style="grid-column:1/-1">
+          <div class="k">Nº Pedido Montero (AS400)</div>
+          <div class="v" style="display:flex;gap:8px;align-items:center;margin-top:2px">
+            <input id="inp-pedido-montero" type="text" style="flex:1;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit" value="${esc(f.numero_pedido_montero||'')}" placeholder="Ej: PED-2026-001">
+            <button onclick="guardarPedidoMontero('${f.id}')" style="padding:6px 14px;background:var(--red);color:#fff;border:none;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:600">Guardar</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:5px">Número de pedido propio de Montero — aparece en el export AS400 para asientos contables</div>
+        </div>
+      </div>
+    </div>
+    <div class="dr-sec">
       <div class="dr-sec-t">${svg(ICN.list)}Líneas de detalle (${lineas.length})</div>
       ${lineas.length?`<table class="mini-tbl"><thead><tr><th>#</th><th>Descripción</th><th class="r">Cant.</th><th class="r">Precio</th><th class="r">Importe</th></tr></thead><tbody>${lineas.map((l,i)=>`<tr><td>${l.numero_linea??i+1}</td><td>${esc(l.descripcion||l.referencia||'—')}</td><td class="r">${l.cantidad??'—'}</td><td class="r">${l.precio_unitario!=null?eur(l.precio_unitario):'—'}</td><td class="r">${l.importe_linea!=null?eur(l.importe_linea):'—'}</td></tr>`).join('')}</tbody></table>`:'<div style="color:var(--faint);font-size:13px;padding:6px 0">No se han extraído líneas de detalle.</div>'}
     </div>
@@ -873,6 +887,15 @@ async function resolverFactura(id,nuevoEstado){
     if(!r.ok||!Array.isArray(data)||!data.length)throw new Error('no_persistido');
     closeDrawer();toast(nuevoEstado==='VALIDADA'?'Factura validada':'Factura rechazada');await loadAll();
   }catch(e){console.error(e);toast('No se pudo guardar (falta permiso de escritura)','err');}
+}
+async function guardarPedidoMontero(id){
+  const val=($('#inp-pedido-montero')||{}).value||'';
+  const tok=getToken()||SB_ANON;
+  const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({numero_pedido_montero:val||null})});
+  if(!r.ok){toast('Error guardando el número de pedido','err');return;}
+  const f=state.facturas.find(x=>x.id===id);
+  if(f)f.numero_pedido_montero=val||null;
+  toast('Nº pedido guardado');
 }
 let toastT=null;
 function toast(msg,tipo){
@@ -938,6 +961,7 @@ $('#period').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('#period').q
 $('#ov').onclick=closeDrawer;
 $('#btn-refresh').onclick=loadAll;
 $('#btn-export').onclick=exportExcel;
+$('#btn-export-as400').onclick=exportAS400;
 $('#btn-leyenda').onclick=openLegend;
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 
@@ -985,6 +1009,37 @@ function exportExcel(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Facturas');
   XLSX.writeFile(wb,`AS400_facturas_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+function exportAS400(){
+  const ff=state.view==='facturas'?filtradas():state.facturas;
+  const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Cuenta Contable',
+    'Nº Factura','Nº Pedido Montero','Ámbito IVA','Delegación',
+    'Base Imponible','Tipo IVA','Cuota IVA','Total Factura'];
+  for(let i=1;i<=10;i++) head.push('Albarán '+i);
+  const rows=ff.map(f=>{
+    const ia=f.json_extraccion_ia||{};
+    const prov=ia.proveedor||{};
+    const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
+    let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
+    if(!d.length) d=[{tipo:f.porcentaje_iva||0,base:f.base_imponible,cuota:f.importe_iva}];
+    const iva=d[0]||{};
+    const row=[
+      dt(f.fecha_factura||f.fecha_recepcion),
+      prov.codigo_si_aparece||'',nombreProv(f),nifProv(f)||'',
+      cuentaContablePorNombre(nombreProv(f))||'',
+      f.numero_factura||'',f.numero_pedido_montero||'',
+      ia._ambito_iva||'NACIONAL',ia._delegacion||f.delegacion_detectada||'',
+      iva.base||'',(Math.round(+iva.tipo)||0)+'%',iva.cuota||'',f.total_factura||''
+    ];
+    for(let i=0;i<10;i++) row.push(albs[i]||'');
+    return row;
+  });
+  const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
+  ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:13},...Array(10).fill({wch:12})];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'AS400');
+  XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 /* ---------- init ---------- */
