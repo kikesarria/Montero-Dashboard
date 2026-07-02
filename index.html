@@ -1013,33 +1013,46 @@ function exportExcel(){
 
 function exportAS400(){
   const ff=state.view==='facturas'?filtradas():state.facturas;
+  if(!ff.length){toast('No hay facturas para exportar','err');return;}
   const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Cuenta Contable',
     'Nº Factura','Nº Pedido Montero','Ámbito IVA','Delegación',
     'Base Imponible','Tipo IVA','Cuota IVA','Total Factura'];
   for(let i=1;i<=10;i++) head.push('Albarán '+i);
-  const rows=ff.map(f=>{
+  const rows=[];
+  ff.forEach(f=>{
     const ia=f.json_extraccion_ia||{};
     const prov=ia.proveedor||{};
     const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
     let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
     if(!d.length) d=[{tipo:f.porcentaje_iva||0,base:f.base_imponible,cuota:f.importe_iva}];
-    const iva=d[0]||{};
-    const row=[
+    const base=[
       dt(f.fecha_factura||f.fecha_recepcion),
       prov.codigo_si_aparece||'',nombreProv(f),nifProv(f)||'',
       cuentaContablePorNombre(nombreProv(f))||'',
       f.numero_factura||'',f.numero_pedido_montero||'',
-      ia._ambito_iva||'NACIONAL',ia._delegacion||f.delegacion_detectada||'',
-      iva.base||'',(Math.round(+iva.tipo)||0)+'%',iva.cuota||'',f.total_factura||''
+      ia._ambito_iva||'NACIONAL',ia._delegacion||f.delegacion_detectada||''
     ];
-    for(let i=0;i<10;i++) row.push(albs[i]||'');
-    return row;
+    d.forEach((iva,idx)=>{
+      const row=[...base,
+        iva.base||'',(Math.round(+iva.tipo)||0)+'%',iva.cuota||'',
+        idx===0?f.total_factura||'':''
+      ];
+      for(let i=0;i<10;i++) row.push(idx===0?albs[i]||'':'');
+      rows.push(row);
+    });
   });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
   ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:13},...Array(10).fill({wch:12})];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'AS400');
   XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
+  marcarExportadasAS400(ff.map(f=>f.id));
+}
+async function marcarExportadasAS400(ids){
+  if(!ids.length)return;
+  const tok=getToken()||SB_ANON;
+  const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=in.(${ids.join(',')})`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({exportada_as400:true})});
+  if(r.ok){ids.forEach(id=>{const f=state.facturas.find(x=>x.id===id);if(f)f.exportada_as400=true;});toast(`${ids.length} factura${ids.length!==1?'s':''} marcada${ids.length!==1?'s':''} como exportada${ids.length!==1?'s':''} a AS400`);render();}
 }
 
 /* ---------- init ---------- */
