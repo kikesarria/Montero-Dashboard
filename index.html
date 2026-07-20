@@ -1023,27 +1023,33 @@ async function exportAS400(){
   if(!confirm(`Se exportarán ${ff.length} factura${ff.length!==1?'s':''} a AS400 (solo recibidas/validadas y no exportadas antes).${excluidas?`\nSe excluyen ${excluidas} (ya exportadas, duplicadas, rechazadas o en revisión).`:''}\n\n¿Continuar?`))return;
   if(btn)btn.disabled=true;
   try{
-  const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Cuenta Contable',
+  const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Cuenta Contable','Artículo',
     'Nº Factura','Nº Pedido Montero','Ámbito IVA','Delegación',
-    'Base Imponible','Tipo IVA','Cuota IVA','Total Factura'];
+    'Base Imponible','Tipo IVA','Cuota IVA','Portes','Total Factura'];
   for(let i=1;i<=10;i++) head.push('Albarán '+i);
   const rows=[];
   ff.forEach(f=>{
     const ia=f.json_extraccion_ia||{};
     const prov=ia.proveedor||{};
     const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
+    const imp=ia?.factura?.importes||ia?.datos_extraidos?.factura?.importes||{};
+    const portes=imp.portes!=null?imp.portes:'';
+    // Artículo: referencia/descripción de las líneas de la factura (el código propio de
+    // Montero tipo "MANTENVARIOS" no viene en la factura del proveedor, sale del pedido)
+    const articulo=[...new Set(lineasDe(f).map(l=>l.referencia||l.descripcion).filter(Boolean))].join(' | ');
     let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
     if(!d.length) d=[{tipo:f.porcentaje_iva||0,base:f.base_imponible,cuota:f.importe_iva}];
     const base=[
       dt(f.fecha_factura||f.fecha_recepcion),
       prov.codigo_si_aparece||'',nombreProv(f),nifProv(f)||'',
-      cuentaContablePorNombre(nombreProv(f))||'',
+      cuentaContablePorNombre(nombreProv(f))||'',articulo,
       f.numero_factura||'',f.numero_pedido_montero||'',
       ia._ambito_iva||'NACIONAL',ia._delegacion||f.delegacion_detectada||''
     ];
     d.forEach((iva,idx)=>{
       const row=[...base,
         iva.base||'',(Math.round(+iva.tipo)||0)+'%',iva.cuota||'',
+        idx===0?portes:'',
         idx===0?f.total_factura||'':''
       ];
       for(let i=0;i<10;i++) row.push(idx===0?albs[i]||'':'');
@@ -1051,7 +1057,7 @@ async function exportAS400(){
     });
   });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
-  ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:13},...Array(10).fill({wch:12})];
+  ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:30},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:10},{wch:13},...Array(10).fill({wch:12})];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'AS400');
   XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
