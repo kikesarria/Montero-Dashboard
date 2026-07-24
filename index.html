@@ -873,12 +873,13 @@ async function openDrawer(id){
     <div class="dr-sec">
       <div class="dr-sec-t">${svg(ICN.file)}Documento original</div>
       ${docUrl
-        ?`<button class="doc-card doc-link" onclick="openPdf(${JSON.stringify(docUrl)})"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">Factura ${esc(f.numero_factura||'')} (PDF original)</div><div class="doc-meta">Documento recibido por email · ${dtL(f.fecha_recepcion)}</div></div><div class="doc-open">${svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>')}<span>Abrir</span></div></button>`
+        ?`<button class="doc-card doc-link" data-pdf="${esc(docUrl)}"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">Factura ${esc(f.numero_factura||'')} (PDF original)</div><div class="doc-meta">Documento recibido por email · ${dtL(f.fecha_recepcion)}</div></div><div class="doc-open">${svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>')}<span>Abrir</span></div></button>`
         :`<div class="doc-card disabled"><div class="doc-ic" style="background:var(--line);color:var(--faint)">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm" style="color:var(--muted)">Documento no disponible</div><div class="doc-meta">El PDF original se adjuntará automáticamente cuando la factura llegue por email</div></div></div>`}
       <details class="raw"><summary>Ver datos extraídos (JSON)</summary><pre>${esc(JSON.stringify(f.json_extraccion_ia,null,2))}</pre></details>
     </div>`;
   $('#dr-body').scrollTop=0;
   document.querySelectorAll('#dr-body [data-act]').forEach(b=>b.onclick=()=>resolverFactura(b.dataset.id,b.dataset.act));
+  document.querySelectorAll('#dr-body [data-pdf]').forEach(b=>b.onclick=()=>openPdf(b.dataset.pdf));
 }
 async function resolverFactura(id,nuevoEstado){
   const f=state.facturas.find(x=>x.id===id);if(!f)return;
