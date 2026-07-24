@@ -472,7 +472,11 @@ async function openPdf(docUrl){
     if(!r.ok)throw new Error(await r.text());
     const d=await r.json();
     const signed=d.signedUrl||d.signedURL;
-    if(signed)window.open(signed,'_blank','noopener');
+    if(signed){
+      // Supabase devuelve una ruta relativa (/object/sign/...); hay que anteponer la base de Storage
+      const full=/^https?:\/\//.test(signed)?signed:`${SB_URL}/storage/v1${signed}`;
+      window.open(full,'_blank','noopener');
+    }
     else throw new Error('No signed URL returned');
   }catch(e){
     toast('No se pudo abrir el PDF: '+e.message);
