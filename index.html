@@ -538,8 +538,8 @@ function deriveIncidencias(ff){
 function setConn(ok,msg){$('#conn-dot').className='dot'+(ok?'':' off');$('#conn-txt').textContent=ok?'Conectado':'Sin conexión';}
 function updateNav(){
   $('#nav-fac').textContent=state.facturas.length;
-  const abiertas=state.incidencias.filter(i=>i.estado==='ABIERTA').length;
-  $('#nav-inc').textContent=abiertas;
+  // el contador refleja FACTURAS afectadas, no incidencias sueltas (coherente con la vista agrupada)
+  $('#nav-inc').textContent=new Set(state.incidencias.filter(i=>i.estado==='ABIERTA').map(i=>i.factura_id)).size;
   const provs=new Set(state.facturas.map(nombreProv));$('#nav-prov').textContent=provs.size;
 }
 
@@ -689,51 +689,47 @@ function tablaFacturas(ff,full){
 /* ---------- INCIDENCIAS ---------- */
 function viewIncidencias(){
   const inc=state.incidencias;
-  const ab=inc.filter(i=>i.estado==='ABIERTA').length;
-  const blo=inc.filter(i=>i.estado==='ABIERTA'&&i.tipo==='INCIDENCIA').length;
-  const av=inc.filter(i=>i.estado==='ABIERTA'&&i.tipo==='AVISO').length;
+  const abiertas=inc.filter(i=>i.estado==='ABIERTA');
+  const facAfectadas=new Set(abiertas.map(i=>i.factura_id)).size;
+  const blo=abiertas.filter(i=>i.tipo==='INCIDENCIA'||i.tipo==='BLOQUEANTE').length;
+  const av=abiertas.filter(i=>i.tipo==='AVISO').length;
+  const facTotal=new Set(inc.map(i=>i.factura_id)).size;
   const kpi=(ic,cls,v,l)=>`<div class="kpi"><div class="kpi-top"><div class="kpi-ic ${cls}">${svg(ic)}</div></div><div class="kpi-val">${v}</div><div class="kpi-lbl">${l}</div></div>`;
   return `<div class="kpis" style="grid-template-columns:repeat(3,1fr)">
-    ${kpi(ICN.alert,'amber',ab,'Incidencias abiertas')}
-    ${kpi(ICN.alert,'red',blo,'A revisar')}
+    ${kpi(ICN.alert,'amber',facAfectadas,'Facturas con incidencias')}
+    ${kpi(ICN.alert,'red',blo,'Incidencias a revisar')}
     ${kpi(ICN.info,'blue',av,'Avisos informativos')}
   </div>
-  <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.alert)}Todas las incidencias</div><span class="card-meta">${inc.length} registros</span></div>${listaIncidencias(inc)}</div>`;
+  <div class="card"><div class="card-h"><div class="card-t">${svg(ICN.alert)}Incidencias por factura</div><span class="card-meta">${facTotal} factura${facTotal!==1?'s':''}</span></div>${listaIncidencias(inc)}</div>`;
 }
 function listaIncidencias(inc){
   if(!inc.length)return`<div class="empty">${svg('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>')}<p>Sin incidencias</p><small>No se ha detectado ningún problema en las facturas</small></div>`;
   const icons={AVISO:ICN.info,INCIDENCIA:ICN.alert,BLOQUEANTE:ICN.alert};
-  const itemHtml=i=>`<div class="inc" style="border-bottom:none;padding:10px 20px 10px 54px">
-      <div class="inc-ic ${i.tipo}" style="width:26px;height:26px">${svg(icons[i.tipo]||ICN.info)}</div>
-      <div class="inc-body">
-        <div class="inc-top">
-          <span class="inc-code">${esc(i.codigo_validacion||'—')}</span>
-          <span class="bdg t-${i.tipo}">${esc(i.tipo)}</span>
-          ${i.estado!=='ABIERTA'?`<span class="bdg s-VALIDADA">${esc(i.estado)}</span>`:''}
-        </div>
-        <div class="inc-desc">${esc(i.descripcion||'')}</div>
-        ${(i.dato_esperado||i.dato_recibido)?`<div class="inc-detail">${i.dato_esperado?`<span>Esperado: <b>${esc(i.dato_esperado)}</b></span>`:''}${i.dato_recibido?`<span>Recibido: <b>${esc(i.dato_recibido)}</b></span>`:''}</div>`:''}
-      </div>
-    </div>`;
-  // Agrupar por factura: una cabecera por factura, con sus incidencias dentro
+  // Una sola fila por factura, con el resumen de todas sus incidencias
   const grupos=new Map();
   inc.forEach(i=>{
     if(!grupos.has(i.factura_id))grupos.set(i.factura_id,[]);
     grupos.get(i.factura_id).push(i);
   });
+  const peor=items=>items.some(i=>i.tipo==='BLOQUEANTE')?'BLOQUEANTE':items.some(i=>i.tipo==='INCIDENCIA')?'INCIDENCIA':'AVISO';
   return [...grupos.entries()].map(([facturaId,items])=>{
     const f=state.facturas.find(x=>x.id===facturaId);
+    const tipo=peor(items);
     const abiertas=items.filter(i=>i.estado==='ABIERTA').length;
+    const codigos=[...new Set(items.map(i=>i.codigo_validacion).filter(Boolean))];
+    const textos=[...new Set(items.map(i=>i.descripcion).filter(Boolean))];
     return `<div class="inc" ${f?`data-id="${f.id}" style="cursor:pointer"`:''}>
-      <div class="inc-body" style="width:100%">
+      <div class="inc-ic ${tipo}">${svg(icons[tipo]||ICN.info)}</div>
+      <div class="inc-body">
         <div class="inc-top">
-          <span class="inc-desc" style="font-size:14px">${f?esc(f.numero_factura||'(sin número)'):'Factura no encontrada'}</span>
-          ${f?`<span style="font-size:12px;color:var(--faint)">· ${esc(nombreProv(f))}</span>`:''}
-          <span class="bdg t-INCIDENCIA">${items.length} incidencia${items.length!==1?'s':''}</span>
-          ${abiertas<items.length?`<span class="bdg s-VALIDADA">${abiertas} abierta${abiertas!==1?'s':''}</span>`:''}
+          ${codigos.map(c=>`<span class="inc-code">${esc(c)}</span>`).join('')}
+          <span class="bdg t-${tipo}">${items.length} incidencia${items.length!==1?'s':''}</span>
+          ${abiertas===0?`<span class="bdg s-VALIDADA">RESUELTA</span>`:''}
+          ${f?`<span style="font-size:12px;color:var(--faint)">· ${esc(f.numero_factura||'(sin número)')} · ${esc(nombreProv(f))}</span>`:''}
         </div>
+        <div class="inc-desc">${esc(textos.join(' · '))}</div>
       </div>
-    </div>${items.map(itemHtml).join('')}`;
+    </div>`;
   }).join('');
 }
 
