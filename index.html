@@ -460,6 +460,9 @@ async function api(path){
 }
 async function openPdf(docUrl){
   if(!docUrl)return;
+  // Abrir la pestaña YA, dentro del gesto de clic, para que el navegador no la
+  // bloquee como popup (la URL firmada se pide después con await).
+  const win=window.open('about:blank','_blank');
   const parts=docUrl.split('/facturas/');
   const filePath=parts[1]||docUrl.split('/').pop();
   try{
@@ -472,13 +475,12 @@ async function openPdf(docUrl){
     if(!r.ok)throw new Error(await r.text());
     const d=await r.json();
     const signed=d.signedUrl||d.signedURL;
-    if(signed){
-      // Supabase devuelve una ruta relativa (/object/sign/...); hay que anteponer la base de Storage
-      const full=/^https?:\/\//.test(signed)?signed:`${SB_URL}/storage/v1${signed}`;
-      window.open(full,'_blank','noopener');
-    }
-    else throw new Error('No signed URL returned');
+    if(!signed)throw new Error('No signed URL returned');
+    // Supabase devuelve una ruta relativa (/object/sign/...); anteponer la base de Storage
+    const full=/^https?:\/\//.test(signed)?signed:`${SB_URL}/storage/v1${signed}`;
+    if(win)win.location.href=full; else window.open(full,'_blank','noopener');
   }catch(e){
+    if(win)win.close();
     toast('No se pudo abrir el PDF: '+e.message);
   }
 }
