@@ -1052,7 +1052,14 @@ async function exportAS400(){
     const prov=ia.proveedor||{};
     const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
     const imp=ia?.factura?.importes||ia?.datos_extraidos?.factura?.importes||{};
-    const portes=imp.portes!=null?imp.portes:'';
+    // Los portes casi nunca vienen como importe aparte: el proveedor los factura como
+    // una línea más ("PORTES", "TRANSPORTE", "Envío"). Si no está el importe suelto,
+    // se suman esas líneas.
+    let portes=imp.portes;
+    if(portes==null){
+      const lp=lineasDe(f).filter(l=>/PORTE|TRANSPORT|ENV[IÍ]O/i.test(`${l.descripcion||''} ${l.referencia||''}`));
+      portes=lp.length?Math.round(lp.reduce((s,l)=>s+(+l.importe_linea||0),0)*100)/100:'';
+    }
     // Artículo: referencia/descripción de las líneas de la factura (el código propio de
     // Montero tipo "MANTENVARIOS" no viene en la factura del proveedor, sale del pedido)
     const articulo=[...new Set(lineasDe(f).map(l=>l.referencia||l.descripcion).filter(Boolean))].join(' | ');
