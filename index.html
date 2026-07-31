@@ -1097,7 +1097,11 @@ function desgloseIVATexto(f){
   }).join(' | ');
 }
 function exportExcel(){
-  const ff=state.view==='facturas'?filtradas():state.facturas;
+  // Nunca se exportan las eliminadas, ni estando en la pestaña "Eliminadas":
+  // se conservan por obligación legal, pero están fuera de la contabilidad.
+  const base=state.view==='facturas'?filtradas():state.facturas;
+  const ff=base.filter(f=>!f.eliminada);
+  if(!ff.length){toast(base.length?'Las facturas que ves están eliminadas: no se exportan':'No hay facturas para exportar','err');return;}
   const head=['Cod. Proveedor','Proveedor','NIF','Cuenta Contable','Nº Factura','Fecha Factura','Nº Pedido',
     'Ámbito IVA','Delegación','Base Imponible IVA','Tipo IVA','Cuota IVA','Total Factura','Estado'];
   for(let i=1;i<=20;i++) head.push('Albarán '+i);
