@@ -54,6 +54,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .page-title{font-size:17px;font-weight:700;letter-spacing:-.3px}
 .page-sub{font-size:12px;color:var(--faint);font-weight:500}
 .tb-spacer{flex:1}
+.rango{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px 8px;font-size:12px;color:var(--muted);font-weight:600}
+.rango input{border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-size:12px;font-family:inherit;color:var(--ink);background:var(--card)}
+.rango.on{border-color:var(--red);color:var(--red)}
+.rango #rg-limpiar{padding:2px 6px;font-size:13px;line-height:1}
 .period{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px;gap:1px}
 .period button{padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;color:var(--muted);transition:.12s;white-space:nowrap}
 .period button:hover{color:var(--ink)}
@@ -153,6 +157,8 @@ td.r{text-align:right}
 .rank-v small{display:block;font-size:11px;font-weight:500;color:var(--faint)}
 
 /* ===== INCIDENCIA ROW ===== */
+.act-btn.del{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.act-btn.del:hover{background:var(--rd-s);color:var(--rd);border-color:var(--rd)}
 .inc{display:flex;gap:14px;padding:15px 20px;border-bottom:1px solid var(--line-2)}
 .inc:last-child{border-bottom:none}
 .inc-ic{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -339,6 +345,10 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
         <button data-d="365">1a</button>
         <button data-d="0" class="active">Todo</button>
       </div>
+      <div class="rango" id="rango" title="Facturas con fecha entre estos dos días">
+        <span>Del</span><input type="date" id="rg-desde"><span>al</span><input type="date" id="rg-hasta">
+        <button class="ico-btn" id="rg-limpiar" title="Quitar el rango">✕</button>
+      </div>
       <button class="ico-btn" id="btn-leyenda" title="Qué significa cada estado"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Leyenda</button>
       <button class="ico-btn" id="btn-export"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Resumen</button>
       <button class="ico-btn" id="btn-export-as400"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>AS400</button>
@@ -419,7 +429,7 @@ async function doLogout(){
 function showLogin(){$('#login-overlay').classList.remove('hidden');$('#l-email').value='';$('#l-pass').value='';$('#l-err').textContent='';}
 function showApp(){$('#login-overlay').classList.add('hidden');const em=_session?.user?.email||'';$('#user-email-lbl').textContent=em;}
 
-const state={view:'resumen',dias:0,facturas:[],incidencias:[],proveedoresBD:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
+const state={view:'resumen',dias:0,desde:'',hasta:'',verEliminadas:false,facturas:[],incidencias:[],proveedoresBD:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
 let chartMes=null;
 const PEND=['ILEGIBLE','EN_REVISION','DUPLICADO_PENDIENTE','PENDIENTE_CRITERIO'];
 const LABEL={VALIDADA:'Validada',EXPORTADA:'Exportada AS400',ILEGIBLE:'Ilegible',EN_REVISION:'En revisión',DUPLICADO_PENDIENTE:'Duplicado pendiente',PENDIENTE_CRITERIO:'Criterio pendiente',RECHAZADA:'Rechazada',COMPLETADA:'Completada'};
@@ -484,11 +494,21 @@ async function openPdf(docUrl){
     toast('No se pudo abrir el PDF: '+e.message);
   }
 }
-function periodFilter(){if(!state.dias)return'';const d=new Date();d.setDate(d.getDate()-state.dias);return`&fecha_recepcion=gte.${d.toISOString()}`;}
+// Se filtra por la FECHA DE LA FACTURA (la del documento), no por cuándo entró al
+// sistema: la contabilidad se lleva por meses según la fecha de la factura.
+function periodFilter(){
+  if(state.desde||state.hasta){
+    return (state.desde?`&fecha_factura=gte.${state.desde}`:'')+(state.hasta?`&fecha_factura=lte.${state.hasta}`:'');
+  }
+  if(!state.dias)return'';
+  const d=new Date();d.setDate(d.getDate()-state.dias);
+  return `&fecha_factura=gte.${d.toISOString().slice(0,10)}`;
+}
 async function loadAll(){
   setConn(true);
   try{
-    state.facturas=await api(`facturas_procesadas?select=*&order=fecha_recepcion.desc&limit=1000${periodFilter()}`);
+    state.facturas=await api(`facturas_procesadas?select=*&order=fecha_factura.desc.nullslast&limit=1000`+
+      periodFilter()+(state.verEliminadas?'&eliminada=is.true':'&eliminada=is.false'));
   }catch(e){console.error(e);setConn(false,e.message);state.facturas=[];}
   try{
     state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable`);
@@ -570,7 +590,7 @@ function metrics(ff){
 }
 function facturasPendientes(){
   return state.facturas.filter(f=>PEND.includes(f.estado))
-    .sort((a,b)=>(PEND.indexOf(a.estado)-PEND.indexOf(b.estado))||(new Date(b.fecha_recepcion)-new Date(a.fecha_recepcion)));
+    .sort((a,b)=>(PEND.indexOf(a.estado)-PEND.indexOf(b.estado))||(new Date(b.fecha_factura||b.fecha_recepcion)-new Date(a.fecha_factura||a.fecha_recepcion)));
 }
 function motivoDe(id){
   const i=state.incidencias.filter(x=>x.factura_id===id);
@@ -638,9 +658,10 @@ function viewFacturas(){
   const estados=[...new Set(state.facturas.map(f=>f.estado).filter(Boolean))].sort();
   const ff=filtradas();
   const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['validadas','Validadas'],['mes','Este mes']];
+  const chipElim=`<button class="chip ${state.verEliminadas?'active':''}" data-elim="1" title="Facturas quitadas del listado">Eliminadas</button>`;
   return `<div class="card">
     <div class="chips-row">
-      ${chips.map(([k,l])=>`<button class="chip ${(state.quickFilter||'')===k?'active':''}" data-chip="${k}">${l}</button>`).join('')}
+      ${chips.map(([k,l])=>`<button class="chip ${(state.quickFilter||'')===k?'active':''}" data-chip="${k}">${l}</button>`).join('')}${chipElim}
     </div>
     <div class="tbl-tools">
       <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor o NIF…" value="${esc(state.search)}"></div>
@@ -801,13 +822,16 @@ async function openDrawer(id){
   const j=f.json_extraccion_ia||{};
   const prov=j?.proveedor||j?.datos_extraidos?.proveedor||{};
   const docUrl=j?._documento_url||j?.datos_extraidos?._documento_url||null;
+  const avisoElim=f.eliminada?`<div class="dr-sec" style="border-left:4px solid var(--rd);background:var(--rd-s)"><div class="dr-sec-t">Factura quitada del listado</div><div style="font-size:13px;color:var(--ink-2)">${f.motivo_eliminacion?esc(f.motivo_eliminacion)+' · ':''}${f.eliminada_en?dtL(f.eliminada_en):''}</div><button class="act-btn ok" data-restaurar="${f.id}" style="margin-top:10px">Recuperar factura</button></div>`:'';
   const esPend=PEND.includes(f.estado);
   const rev=j?._revision;
 
   $('#dr-body').innerHTML=`
-    ${esPend?`<div class="dr-actions">
-      <button class="act-btn ok" data-act="VALIDADA" data-id="${f.id}">${svg(ICN.check)}Validar</button>
-      <button class="act-btn no" data-act="RECHAZADA" data-id="${f.id}">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}Rechazar</button>
+    ${avisoElim}
+    ${!f.eliminada?`<div class="dr-actions">
+      ${esPend?`<button class="act-btn ok" data-act="VALIDADA" data-id="${f.id}">${svg(ICN.check)}Validar</button>
+      <button class="act-btn no" data-act="RECHAZADA" data-id="${f.id}">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}Rechazar</button>`:''}
+      <button class="act-btn del" data-del="${f.id}" title="Quitar del listado y del Excel de contabilidad">${svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>')}Eliminar</button>
     </div>`:''}
     ${rev?`<div class="rev-note">${svg(ICN.check,'var(--green)').replace('viewBox','width="15" height="15" viewBox')}Revisada manualmente · ${dtL(rev.fecha)} → <b>${esc(rev.accion)}</b></div>`:''}
     <div class="dr-sec">
@@ -891,7 +915,36 @@ async function openDrawer(id){
     </div>`;
   $('#dr-body').scrollTop=0;
   document.querySelectorAll('#dr-body [data-act]').forEach(b=>b.onclick=()=>resolverFactura(b.dataset.id,b.dataset.act));
+  document.querySelectorAll('#dr-body [data-del]').forEach(b=>b.onclick=()=>eliminarFactura(b.dataset.del));
+  document.querySelectorAll('#dr-body [data-restaurar]').forEach(b=>b.onclick=()=>restaurarFactura(b.dataset.restaurar));
   document.querySelectorAll('#dr-body [data-pdf]').forEach(b=>b.onclick=()=>openPdf(b.dataset.pdf));
+}
+async function eliminarFactura(id){
+  const f=state.facturas.find(x=>x.id===id);if(!f)return;
+  const ref=`${f.numero_factura||'(sin número)'} · ${nombreProv(f)} · ${eur(f.total_factura)}`;
+  if(!confirm(`¿Quitar esta factura del listado?\n\n${ref}\n\nDejará de aparecer en el panel y en el Excel de contabilidad. El documento se conserva y se puede recuperar.`))return;
+  const motivo=prompt('Motivo (opcional): p. ej. "duplicada", "no es nuestra"…')||null;
+  try{
+    const tok=getToken()||SB_ANON;
+    const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',
+      headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},
+      body:JSON.stringify({eliminada:true,eliminada_en:new Date().toISOString(),
+                           eliminada_por:(_session?.user?.email||'Panel'),motivo_eliminacion:motivo})});
+    const data=await r.json().catch(()=>[]);
+    if(!r.ok||!Array.isArray(data)||!data.length)throw new Error('no_persistido');
+    closeDrawer();toast('Factura quitada del listado');await loadAll();
+  }catch(e){console.error(e);toast('No se pudo eliminar — vuelve a iniciar sesión','err');}
+}
+async function restaurarFactura(id){
+  try{
+    const tok=getToken()||SB_ANON;
+    const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',
+      headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},
+      body:JSON.stringify({eliminada:false,eliminada_en:null,eliminada_por:null,motivo_eliminacion:null})});
+    const data=await r.json().catch(()=>[]);
+    if(!r.ok||!Array.isArray(data)||!data.length)throw new Error('no_persistido');
+    closeDrawer();toast('Factura recuperada');await loadAll();
+  }catch(e){console.error(e);toast('No se pudo recuperar','err');}
 }
 async function resolverFactura(id,nuevoEstado){
   const f=state.facturas.find(x=>x.id===id);if(!f)return;
@@ -968,7 +1021,10 @@ function bindContent(){
   document.querySelectorAll('tbody tr[data-id]').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.id));
   document.querySelectorAll('.inc[data-id]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.id));
   document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(g==='revision'||g==='validadas'){setView('facturas');state.quickFilter=g;render();}else setView(g);});
-  document.querySelectorAll('[data-chip]').forEach(el=>el.onclick=()=>{state.quickFilter=el.dataset.chip;render();});
+  document.querySelectorAll('[data-chip]').forEach(el=>el.onclick=()=>{
+    state.quickFilter=el.dataset.chip;
+    if(state.verEliminadas){state.verEliminadas=false;loadAll();}else render();});
+  document.querySelectorAll('[data-elim]').forEach(b=>b.onclick=()=>{state.verEliminadas=!state.verEliminadas;state.quickFilter='';loadAll();});
   document.querySelectorAll('tbody tr[data-prov]').forEach(tr=>tr.onclick=()=>{state.provSel=tr.dataset.prov;render();});
   const back=$('#prov-back');if(back)back.onclick=()=>{state.provSel=null;render();};
   document.querySelectorAll('th[data-sort]').forEach(th=>th.onclick=()=>{const k=th.dataset.sort;if(state.sort.k===k)state.sort.dir*=-1;else state.sort={k,dir:k==='prov'?1:-1};render();});
@@ -977,7 +1033,28 @@ function bindContent(){
   const fe=$('#f-estado');if(fe)fe.onchange=e=>{state.fEstado=e.target.value;refreshTabla();};
 }
 document.querySelectorAll('.nav-item').forEach(b=>b.onclick=()=>setView(b.dataset.view));
-$('#period').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('#period').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.dias=+b.dataset.d;loadAll();});
+$('#period').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  $('#period').querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');state.dias=+b.dataset.d;
+  state.desde='';state.hasta='';$('#rg-desde').value='';$('#rg-hasta').value='';pintaRango();
+  loadAll();});
+function pintaRango(){
+  const activo=!!(state.desde||state.hasta);
+  $('#rango').classList.toggle('on',activo);
+  if(activo)$('#period').querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+}
+function aplicaRango(){
+  state.desde=$('#rg-desde').value;state.hasta=$('#rg-hasta').value;
+  if(state.desde&&state.hasta&&state.desde>state.hasta){
+    toast('La fecha "del" es posterior a la fecha "al"','err');return;}
+  pintaRango();loadAll();
+}
+$('#rg-desde').onchange=aplicaRango;
+$('#rg-hasta').onchange=aplicaRango;
+$('#rg-limpiar').onclick=()=>{
+  state.desde='';state.hasta='';$('#rg-desde').value='';$('#rg-hasta').value='';
+  $('#period').querySelectorAll('button').forEach(x=>x.classList.toggle('active',+x.dataset.d===state.dias));
+  pintaRango();loadAll();};
 $('#ov').onclick=closeDrawer;
 $('#btn-refresh').onclick=loadAll;
 $('#btn-export').onclick=exportExcel;
@@ -1036,7 +1113,7 @@ async function exportAS400(){
   if(btn&&btn.disabled)return;
   const base=state.view==='facturas'?filtradas():state.facturas;
   const OK_EXPORT=['RECIBIDA','VALIDADA'];
-  const ff=base.filter(f=>OK_EXPORT.includes(f.estado)&&!f.exportada_as400&&!f.es_duplicado);
+  const ff=base.filter(f=>OK_EXPORT.includes(f.estado)&&!f.exportada_as400&&!f.es_duplicado&&!f.eliminada);
   const excluidas=base.length-ff.length;
   if(!ff.length){toast(base.length?'Nada nuevo que exportar: las facturas visibles ya están exportadas, rechazadas o pendientes de revisión':'No hay facturas para exportar','err');return;}
   if(!confirm(`Se exportarán ${ff.length} factura${ff.length!==1?'s':''} a AS400 (solo recibidas/validadas y no exportadas antes).${excluidas?`\nSe excluyen ${excluidas} (ya exportadas, duplicadas, rechazadas o en revisión).`:''}\n\n¿Continuar?`))return;
