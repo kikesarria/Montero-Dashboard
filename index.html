@@ -906,6 +906,25 @@ async function openDrawer(id){
       <div class="dr-sec-t">${svg(ICN.alert)}Incidencias (${inc.length})</div>
       ${inc.length?inc.map(i=>`<div class="inc-mini"><div class="inc-ic ${i.tipo}" style="width:30px;height:30px">${svg(i.tipo==='AVISO'?ICN.info:ICN.alert)}</div><div class="inc-body"><div class="inc-top"><span class="bdg t-${i.tipo}">${esc(i.tipo)}</span><span class="inc-code">${esc(i.codigo_validacion||'')}</span></div><div style="font-size:13px;font-weight:600;margin-top:3px">${esc(i.descripcion||'')}</div></div></div>`).join(''):'<div style="color:var(--green);font-size:13px;display:flex;align-items:center;gap:7px;padding:4px 0">'+svg('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>','var(--green)').replace('viewBox','width="16" height="16" viewBox')+'Sin incidencias. Validación correcta.</div>'}
     </div>
+    ${(()=>{
+      // Qué respaldo tiene la factura. Solo cuenta el documento en sí: que en la
+      // factura ponga "su pedido 209.071" no demuestra que Montero pidiera eso.
+      const adj=Array.isArray(j._adjuntos)?j._adjuntos:[];
+      const albJ=(Array.isArray(j.albaranes)?j.albaranes:[]).filter(a=>a&&((a.lineas||[]).length||a.total!=null));
+      const pedJ=(((j.pedido||{}).lineas)||[]).filter(p=>p&&(p.precio_unitario!=null||p.importe_linea!=null));
+      const tieneAlb=albJ.length>0||adj.some(a=>a.tipo==='ALBARAN');
+      const tienePed=pedJ.length>0||adj.some(a=>a.tipo==='PEDIDO');
+      const fila=(ok,etiq,detalle)=>`<div class="kv-item"><div class="k">${etiq}</div><div class="v" style="color:${ok?'var(--green)':'var(--rd)'};display:flex;align-items:center;gap:6px">${svg(ok?'<polyline points="20 6 9 17 4 12"/>':'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',ok?'var(--green)':'var(--rd)').replace('viewBox','width="15" height="15" viewBox')}${ok?esc(detalle||'sí'):'no ha llegado'}</div></div>`;
+      const deAparte=adj.filter(a=>a.tipo==='ALBARAN'||a.tipo==='PEDIDO');
+      return `<div class="dr-sec">
+        <div class="dr-sec-t">${svg('<path d="M9 12h6M9 16h6M9 8h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>')}Respaldo documental</div>
+        <div class="kv">
+          ${fila(tienePed,'Pedido',pedJ.length?`${pedJ.length} línea${pedJ.length!==1?'s':''}`:'documento aparte')}
+          ${fila(tieneAlb,'Albarán',albJ.length?`${albJ.length} albarán${albJ.length!==1?'es':''}`:'documento aparte')}
+        </div>
+        ${deAparte.length?`<div style="margin-top:11px;font-size:12.5px;color:var(--muted)">Llegaron en archivo aparte, en el mismo correo:<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">${deAparte.map(a=>`<div style="color:var(--ink-2)">· ${esc(a.nombre||'')} <span style="color:var(--faint)">(${esc(a.tipo)})</span></div>`).join('')}</div></div>`:''}
+        ${(!tienePed||!tieneAlb)?`<div style="margin-top:11px;font-size:12.5px;color:var(--muted);line-height:1.5">Sin ${!tienePed&&!tieneAlb?'pedido ni albarán':(!tienePed?'el pedido':'el albarán')} no se puede comprobar que lo facturado sea lo que Montero pidió y recibió, así que la factura no se da por validada.</div>`:''}
+      </div>`;})()}
     <div class="dr-sec">
       <div class="dr-sec-t">${svg(ICN.file)}Documento original</div>
       ${docUrl
