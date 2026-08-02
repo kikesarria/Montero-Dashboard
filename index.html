@@ -462,9 +462,18 @@ const svg=(p,c='currentColor')=>`<svg fill="none" stroke="${c}" stroke-width="2"
 function confHTML(v){if(v==null)return'<span style="color:var(--faint)">—</span>';const p=Math.round(v*100),c=p>=80?'hi':p>=60?'md':'lo';return`<span class="conf"><span class="conf-bg"><span class="conf-f ${c}" style="width:${p}%"></span></span><span class="conf-n">${p}%</span></span>`;}
 
 /* ---------- data ---------- */
-async function api(path){
+class SesionCaducada extends Error{constructor(){super('sesion_caducada');}}
+async function api(path,_reintento){
   const tok=getToken()||SB_ANON;
   const r=await fetch(`${SB_URL}/rest/v1/${path}`,{headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`}});
+  // La sesión caduca al cabo de una hora: al volver al día siguiente el token
+  // guardado ya no vale. Se renueva y se reintenta una vez; si tampoco vale, se
+  // pide entrar de nuevo. Antes esto se confundía con un fallo de red y el panel
+  // aparecía vacío con "Sin conexión", como si el sistema estuviera caído.
+  if(r.status===401&&!_reintento){
+    if(await refreshToken())return api(path,true);
+    throw new SesionCaducada();
+  }
   if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
   return r.json();
 }
@@ -509,7 +518,9 @@ async function loadAll(){
   try{
     state.facturas=await api(`facturas_procesadas?select=*&order=fecha_factura.desc.nullslast&limit=1000`+
       periodFilter()+(state.verEliminadas?'&eliminada=is.true':'&eliminada=is.false'));
-  }catch(e){console.error(e);setConn(false,e.message);state.facturas=[];}
+  }catch(e){
+    if(e instanceof SesionCaducada){clearSession();showLogin();return;}
+    console.error(e);setConn(false,e.message);state.facturas=[];}
   try{
     state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable`);
   }catch(e){console.error(e);state.proveedoresBD=[];}
@@ -970,7 +981,9 @@ async function resolverFactura(id,nuevoEstado){
   const accionTxt=nuevoEstado==='VALIDADA'?'validar':'rechazar';
   if(!confirm(`¿Seguro que quieres ${accionTxt} la factura ${f.numero_factura||''}?`))return;
   const ia=Object.assign({},f.json_extraccion_ia||{});
-  ia._revision={accion:nuevoEstado,fecha:new Date().toISOString(),por:'Panel'};
+  // Queda registrado quién la revisó: las facturas se conservan 6 años y la
+  // decisión de validar o rechazar tiene que poder atribuirse a una persona.
+  ia._revision={accion:nuevoEstado,fecha:new Date().toISOString(),por:(_session?.user?.email||'Panel')};
   try{
     const tok=getToken()||SB_ANON;
     const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({estado:nuevoEstado,json_extraccion_ia:ia})});
