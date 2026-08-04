@@ -943,6 +943,9 @@ async function openDrawer(id){
         if(Array.isArray(ver.albaranes_citados)&&ver.albaranes_citados.length)albCitados=ver.en_el_pdf_factura.albaran?[]:ver.albaranes_citados;
         if(ver.pedido_citado)citaPed=ver.pedido_citado;
       }
+      // Un abono es una devolución o un descuento sobre lo ya facturado, no
+      // mercancía que llegue: no lleva pedido ni albarán y no se le piden.
+      const esAbono=(+f.total_factura||0)<0;
       let tieneAlb=albJ.length>0||adj.some(a=>a.tipo==='ALBARAN');
       const tienePed=pedJ.length>0||adj.some(a=>a.tipo==='PEDIDO');
       // Un albarán sin firmar no prueba la recepción: el que emite el proveedor
@@ -982,7 +985,8 @@ async function openDrawer(id){
       return `<div class="dr-sec">
         <div class="dr-sec-t">${svg('<path d="M9 12h6M9 16h6M9 8h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>')}Documentos de la factura</div>
         ${botonUnico}
-        ${doc('Factura',docUrl?`nº ${f.numero_factura||'—'} · recibida ${dtL(f.fecha_recepcion)}`:'el PDF no está disponible',!!docUrl,'')}
+        ${doc(esAbono?'Abono':'Factura',docUrl?`nº ${f.numero_factura||'—'} · recibida ${dtL(f.fecha_recepcion)}`:'el PDF no está disponible',!!docUrl,'')}
+        ${esAbono?`<div style="font-size:12.5px;color:var(--muted);line-height:1.5;padding:2px 2px 0">Un abono es una devolución o un descuento sobre lo ya facturado, no mercancía servida: no lleva pedido ni albarán, y por eso no se le piden.</div>`:`
         ${doc('Pedido',
               tienePed?(pedJ.length?'dentro del PDF de la factura':nombresAdj('PEDIDO')):'no ha llegado',
               tienePed,
@@ -992,9 +996,9 @@ async function openDrawer(id){
                       :(sinFirmar?`${esc(firmas.map(a=>a.documento).filter(Boolean)[0]||'')} — sin firmar`:'no ha llegado'),
               tieneAlb,
               sinFirmar?'Es el albarán que emite el proveedor, sin firma ni sello: no prueba que Montero recibiera la mercancía'
-                       :(!tieneAlb&&albCitados.length?`La factura lo cita (${esc(albCitados.join(', '))}) pero el documento no está`:''))}
+                       :(!tieneAlb&&albCitados.length?`La factura lo cita (${esc(albCitados.join(', '))}) pero el documento no está`:''))}`}
         ${transporte.map(a=>doc('Transporte',`${esc(a.nombre||'')} — acredita el envío, no la mercancía`,true,'')).join('')}
-        ${(!tienePed||!tieneAlb)?`<div style="margin-top:10px;font-size:12.5px;color:var(--muted);line-height:1.5">Sin ${!tienePed&&!tieneAlb?'pedido ni albarán':(!tienePed?'el pedido':'el albarán')} no se puede comprobar que lo facturado sea lo que Montero pidió y recibió, así que la factura no se da por validada.</div>`:''}
+        ${(!esAbono&&(!tienePed||!tieneAlb))?`<div style="margin-top:10px;font-size:12.5px;color:var(--muted);line-height:1.5">Sin ${!tienePed&&!tieneAlb?'pedido ni albarán':(!tienePed?'el pedido':'el albarán')} no se puede comprobar que lo facturado sea lo que Montero pidió y recibió, así que la factura no se da por validada.</div>`:''}
         <details class="raw"><summary>Ver datos extraídos (JSON)</summary><pre>${esc(JSON.stringify(f.json_extraccion_ia,null,2))}</pre></details>
       </div>`;})()}`;
   $('#dr-body').scrollTop=0;
