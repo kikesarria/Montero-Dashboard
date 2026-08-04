@@ -482,11 +482,14 @@ async function openPdf(docUrl){
   // Abrir la pestaña YA, dentro del gesto de clic, para que el navegador no la
   // bloquee como popup (la URL firmada se pide después con await).
   const win=window.open('about:blank','_blank');
-  const parts=docUrl.split('/facturas/');
-  const filePath=parts[1]||docUrl.split('/').pop();
+  // El bucket sale de la propia URL: las facturas están en "facturas" y los
+  // expedientes (el PDF que une factura, pedido y albarán) en "expedientes".
+  const m=docUrl.match(/\/object\/(?:public\/|authenticated\/)?([^/]+)\/(.+)$/);
+  const bucket=m?m[1]:'facturas';
+  const filePath=m?m[2]:docUrl.split('/').pop();
   try{
     const tok=getToken();
-    const r=await fetch(`${SB_URL}/storage/v1/object/sign/facturas/${filePath}`,{
+    const r=await fetch(`${SB_URL}/storage/v1/object/sign/${bucket}/${filePath}`,{
       method:'POST',
       headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json'},
       body:JSON.stringify({expiresIn:3600})
@@ -940,8 +943,13 @@ async function openDrawer(id){
         if(Array.isArray(ver.albaranes_citados)&&ver.albaranes_citados.length)albCitados=ver.en_el_pdf_factura.albaran?[]:ver.albaranes_citados;
         if(ver.pedido_citado)citaPed=ver.pedido_citado;
       }
-      const tieneAlb=albJ.length>0||adj.some(a=>a.tipo==='ALBARAN');
+      let tieneAlb=albJ.length>0||adj.some(a=>a.tipo==='ALBARAN');
       const tienePed=pedJ.length>0||adj.some(a=>a.tipo==='PEDIDO');
+      // Un albarán sin firmar no prueba la recepción: el que emite el proveedor
+      // dice lo que él envió, no que Montero lo recibiera.
+      const firmas=Array.isArray(j._albaranes_verificados)?j._albaranes_verificados:[];
+      const sinFirmar=firmas.length&&!firmas.some(a=>a.firmado);
+      if(tieneAlb&&sinFirmar)tieneAlb=false;
       // Se dice qué archivo es, no "documento aparte": quien revisa necesita
       // saber cuál buscar en el correo, no que exista alguno.
       const nombresAdj=t=>{const n=adj.filter(a=>a.tipo===t).map(a=>a.nombre||'');
@@ -953,28 +961,39 @@ async function openDrawer(id){
       // Los tres documentos van juntos y en el mismo sitio: la factura, el albarán
       // y el pedido son las tres patas de la misma comprobación, y separarlos hacía
       // que quien iba a ver el albarán acabara abriendo la factura.
-      const doc=(etiq,estado,ok,url,nota)=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);margin-bottom:6px">
-        <div style="width:26px;height:26px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${ok?'var(--gr-s,#e8f5ee)':'var(--rd-s)'};color:${ok?'var(--green)':'var(--rd)'}">${svg(ok?'<polyline points="20 6 9 17 4 12"/>':'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>').replace('viewBox','width="14" height="14" viewBox')}</div>
+      // Una sola fila por documento, sin botón: se abren todos juntos con el
+      // botón de arriba. Tener un botón por documento obligaba a abrir tres
+      // pestañas y a recordar cuál era cuál.
+      const doc=(etiq,estado,ok,nota)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);margin-bottom:6px">
+        <div style="width:24px;height:24px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${ok?'var(--gr-s,#e8f5ee)':'var(--rd-s)'};color:${ok?'var(--green)':'var(--rd)'}">${svg(ok?'<polyline points="20 6 9 17 4 12"/>':'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>').replace('viewBox','width="13" height="13" viewBox')}</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600;color:var(--ink)">${etiq}</div>
           <div style="font-size:12px;color:${ok?'var(--muted)':'var(--rd)'};margin-top:1px">${esc(estado)}</div>
           ${nota?`<div style="font-size:11.5px;color:var(--amber);margin-top:2px">${nota}</div>`:''}
         </div>
-        ${url?`<button data-pdf="${esc(url)}" style="flex-shrink:0;cursor:pointer;color:var(--red);font-weight:600;font-size:12.5px;padding:5px 12px;border:1px solid var(--red);border-radius:7px;background:none">Abrir</button>`:''}
       </div>`;
-      const urlDe=t=>{const a=adj.find(x=>x.tipo===t&&x.url);return a?a.url:null;};
+      // Un único botón: el expediente une factura, pedido y albarán en un PDF,
+      // con una portadilla antes de cada uno. Si no lo hay, se abre la factura.
+      const expUrl=j._expediente_url||null;
+      const nDocs=1+adj.length;
+      const botonUnico=(expUrl||docUrl)
+        ?`<button class="doc-card doc-link" data-pdf="${esc(expUrl||docUrl)}" style="margin-bottom:12px;cursor:pointer;text-align:left"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">${expUrl?`Abrir todos los documentos (${nDocs})`:'Abrir la factura'}</div><div class="doc-meta">${expUrl?'Factura, pedido y albarán en un solo PDF, uno detrás de otro':'Es el único documento que hay'}</div></div><div class="doc-open">${svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>')}<span>Abrir</span></div></button>`
+        :'';
       return `<div class="dr-sec">
         <div class="dr-sec-t">${svg('<path d="M9 12h6M9 16h6M9 8h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>')}Documentos de la factura</div>
-        ${doc('Factura',docUrl?`nº ${f.numero_factura||'—'} · recibida ${dtL(f.fecha_recepcion)}`:'el PDF no está disponible',!!docUrl,docUrl,'')}
-        ${doc('Albarán',
-              tieneAlb?(albJ.length?`dentro del PDF de la factura (${albJ.length})`:nombresAdj('ALBARAN')):'no ha llegado',
-              tieneAlb, albJ.length?null:urlDe('ALBARAN'),
-              !tieneAlb&&albCitados.length?`La factura lo cita (${esc(albCitados.join(', '))}) pero el documento no está`:'')}
+        ${botonUnico}
+        ${doc('Factura',docUrl?`nº ${f.numero_factura||'—'} · recibida ${dtL(f.fecha_recepcion)}`:'el PDF no está disponible',!!docUrl,'')}
         ${doc('Pedido',
               tienePed?(pedJ.length?'dentro del PDF de la factura':nombresAdj('PEDIDO')):'no ha llegado',
-              tienePed, pedJ.length?null:urlDe('PEDIDO'),
+              tienePed,
               !tienePed&&citaPed?`La factura lo cita (${esc(citaPed)}) pero el documento no está`:'')}
-        ${transporte.map(a=>doc('Transporte',`${esc(a.nombre||'')} — acredita el envío, no la mercancía`,true,a.url||null,'')).join('')}
+        ${doc('Albarán',
+              tieneAlb?(albJ.length?`dentro del PDF de la factura (${albJ.length})`:nombresAdj('ALBARAN'))
+                      :(sinFirmar?`${esc(firmas.map(a=>a.documento).filter(Boolean)[0]||'')} — sin firmar`:'no ha llegado'),
+              tieneAlb,
+              sinFirmar?'Es el albarán que emite el proveedor, sin firma ni sello: no prueba que Montero recibiera la mercancía'
+                       :(!tieneAlb&&albCitados.length?`La factura lo cita (${esc(albCitados.join(', '))}) pero el documento no está`:''))}
+        ${transporte.map(a=>doc('Transporte',`${esc(a.nombre||'')} — acredita el envío, no la mercancía`,true,'')).join('')}
         ${(!tienePed||!tieneAlb)?`<div style="margin-top:10px;font-size:12.5px;color:var(--muted);line-height:1.5">Sin ${!tienePed&&!tieneAlb?'pedido ni albarán':(!tienePed?'el pedido':'el albarán')} no se puede comprobar que lo facturado sea lo que Montero pidió y recibió, así que la factura no se da por validada.</div>`:''}
         <details class="raw"><summary>Ver datos extraídos (JSON)</summary><pre>${esc(JSON.stringify(f.json_extraccion_ia,null,2))}</pre></details>
       </div>`;})()}`;
