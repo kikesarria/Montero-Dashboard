@@ -921,19 +921,31 @@ async function openDrawer(id){
       // Qué respaldo tiene la factura. Solo cuenta el documento en sí: que en la
       // factura ponga "su pedido 209.071" no demuestra que Montero pidiera eso.
       const adj=Array.isArray(j._adjuntos)?j._adjuntos:[];
-      const albJ=(Array.isArray(j.albaranes)?j.albaranes:[]).filter(a=>a&&((a.lineas||[]).length||a.total!=null));
+      // Un albarán solo cuenta si existe el documento. La factura agrupa sus
+      // líneas por el albarán del que vienen ("Alb. VA 20261072 de 10/06"), y eso
+      // es una referencia, no la hoja de entrega. Lo que distingue al documento
+      // es que traiga su propio total; en las extracciones nuevas la IA además
+      // lo marca con origen.
+      const todosAlb=(Array.isArray(j.albaranes)?j.albaranes:[]).filter(Boolean);
+      const albJ=todosAlb.filter(a=>a.origen?a.origen==='DOCUMENTO_PRESENTE':a.total!=null);
+      const albCitados=todosAlb.filter(a=>a.numero&&!albJ.includes(a)).map(a=>a.numero);
       const pedJ=(((j.pedido||{}).lineas)||[]).filter(p=>p&&(p.precio_unitario!=null||p.importe_linea!=null));
       const tieneAlb=albJ.length>0||adj.some(a=>a.tipo==='ALBARAN');
       const tienePed=pedJ.length>0||adj.some(a=>a.tipo==='PEDIDO');
-      const fila=(ok,etiq,detalle)=>`<div class="kv-item"><div class="k">${etiq}</div><div class="v" style="color:${ok?'var(--green)':'var(--rd)'};display:flex;align-items:center;gap:6px">${svg(ok?'<polyline points="20 6 9 17 4 12"/>':'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',ok?'var(--green)':'var(--rd)').replace('viewBox','width="15" height="15" viewBox')}${ok?esc(detalle||'sí'):'no ha llegado'}</div></div>`;
+      const citaPed=((j._pedido||{}).numero)||null;
+      // Se distingue "no ha llegado" de "solo se cita el número": lo segundo le
+      // dice a quien revisa qué pedirle exactamente al proveedor.
+      const fila=(ok,etiq,detalle,citado)=>`<div class="kv-item"><div class="k">${etiq}</div><div class="v" style="color:${ok?'var(--green)':'var(--rd)'};display:flex;align-items:center;gap:6px">${svg(ok?'<polyline points="20 6 9 17 4 12"/>':'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',ok?'var(--green)':'var(--rd)').replace('viewBox','width="15" height="15" viewBox')}${ok?esc(detalle||'sí'):'no ha llegado'}</div>${!ok&&citado?`<div style="font-size:12px;color:var(--amber);margin-top:3px">La factura lo cita (${esc(citado)}) pero el documento no está</div>`:''}</div>`;
       const deAparte=adj.filter(a=>a.tipo==='ALBARAN'||a.tipo==='PEDIDO');
+      const transporte=adj.filter(a=>a.tipo==='TRANSPORTE');
       return `<div class="dr-sec">
         <div class="dr-sec-t">${svg('<path d="M9 12h6M9 16h6M9 8h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>')}Respaldo documental</div>
         <div class="kv">
-          ${fila(tienePed,'Pedido',pedJ.length?`${pedJ.length} línea${pedJ.length!==1?'s':''}`:'documento aparte')}
-          ${fila(tieneAlb,'Albarán',albJ.length?`${albJ.length} albarán${albJ.length!==1?'es':''}`:'documento aparte')}
+          ${fila(tienePed,'Pedido',pedJ.length?`${pedJ.length} línea${pedJ.length!==1?'s':''}`:'documento aparte',citaPed)}
+          ${fila(tieneAlb,'Albarán',albJ.length?`${albJ.length} albarán${albJ.length!==1?'es':''}`:'documento aparte',albCitados.join(', '))}
         </div>
         ${deAparte.length?`<div style="margin-top:11px;font-size:12.5px;color:var(--muted)">Llegaron en archivo aparte, en el mismo correo:<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">${deAparte.map(a=>`<div style="color:var(--ink-2)">· ${esc(a.nombre||'')} <span style="color:var(--faint)">(${esc(a.tipo)})</span></div>`).join('')}</div></div>`:''}
+        ${transporte.length?`<div style="margin-top:9px;font-size:12.5px;color:var(--muted)">También llegó documentación de transporte, que acredita el envío pero no la mercancía: ${transporte.map(a=>esc(a.nombre||'')).join(', ')}</div>`:''}
         ${(!tienePed||!tieneAlb)?`<div style="margin-top:11px;font-size:12.5px;color:var(--muted);line-height:1.5">Sin ${!tienePed&&!tieneAlb?'pedido ni albarán':(!tienePed?'el pedido':'el albarán')} no se puede comprobar que lo facturado sea lo que Montero pidió y recibió, así que la factura no se da por validada.</div>`:''}
       </div>`;})()}
     <div class="dr-sec">
