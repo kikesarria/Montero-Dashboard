@@ -948,7 +948,11 @@ async function openDrawer(id){
           ${fila(tienePed,'Pedido',pedJ.length?`en el PDF de la factura`:nombresAdj('PEDIDO'),citaPed)}
           ${fila(tieneAlb,'Albarán',albJ.length?`en el PDF de la factura (${albJ.length})`:nombresAdj('ALBARAN'),albCitados.join(', '))}
         </div>
-        ${deAparte.length?`<div style="margin-top:11px;font-size:12.5px;color:var(--muted)">Llegaron en archivo aparte, en el mismo correo:<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">${deAparte.map(a=>`<div style="color:var(--ink-2)">· ${esc(a.nombre||'')} <span style="color:var(--faint)">(${esc(a.tipo)})</span></div>`).join('')}</div></div>`:''}
+        ${deAparte.length?`<div style="margin-top:11px;font-size:12.5px;color:var(--muted)">Llegaron en archivo aparte, en el mismo correo:<div style="margin-top:6px;display:flex;flex-direction:column;gap:5px">${deAparte.map(a=>a.url
+            // Se puede abrir: de nada sirve decir que el albarán existe si quien
+            // revisa no puede verlo — es lo único que confirma que la mercancía llegó.
+            ?`<button class="doc-link" data-pdf="${esc(a.url)}" style="display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:12.5px;text-align:left;width:100%">${svg(ICN.file).replace('viewBox','width="14" height="14" viewBox')}<span style="flex:1;color:var(--ink-2)">${esc(a.nombre||'')} <span style="color:var(--faint)">(${esc(a.tipo)})</span></span><span style="color:var(--red);font-weight:600">Abrir</span></button>`
+            :`<div style="color:var(--ink-2)">· ${esc(a.nombre||'')} <span style="color:var(--faint)">(${esc(a.tipo)})</span></div>`).join('')}</div></div>`:''}
         ${transporte.length?`<div style="margin-top:9px;font-size:12.5px;color:var(--muted)">También llegó documentación de transporte, que acredita el envío pero no la mercancía: ${transporte.map(a=>esc(a.nombre||'')).join(', ')}</div>`:''}
         ${(!tienePed||!tieneAlb)?`<div style="margin-top:11px;font-size:12.5px;color:var(--muted);line-height:1.5">Sin ${!tienePed&&!tieneAlb?'pedido ni albarán':(!tienePed?'el pedido':'el albarán')} no se puede comprobar que lo facturado sea lo que Montero pidió y recibió, así que la factura no se da por validada.</div>`:''}
       </div>`;})()}
