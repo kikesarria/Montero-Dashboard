@@ -127,6 +127,9 @@ td.r{text-align:right}
 .bdg{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:7px;font-size:11.5px;font-weight:600;white-space:nowrap}
 .bdg::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
 .bdg.s-VALIDADA,.bdg.s-COMPLETADA,.bdg.s-EXPORTADA{background:var(--green-s);color:var(--green)}
+/* Contabilizada es el final del recorrido: verde macizo para que se distinga de
+   validada de un vistazo, sin tener que leer la etiqueta. */
+.bdg.s-CONTABILIZADA{background:var(--green);color:#fff}
 .bdg.s-RECIBIDA,.bdg.s-PENDIENTE{background:var(--blue-s);color:var(--blue)}
 .bdg.s-PROCESANDO{background:var(--amber-s);color:var(--amber)}
 .bdg.s-EN_REVISION,.bdg.s-PENDIENTE_CRITERIO{background:var(--amber-s);color:var(--amber)}
@@ -241,6 +244,8 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
 .act-btn.ok:hover{background:#0c8049}
 .act-btn.no{background:#fff;color:var(--rd);border:1px solid var(--rd)}
 .act-btn.no:hover{background:var(--rd);color:#fff}
+.act-btn.cont{background:#fff;color:var(--green);border:1px solid var(--green)}
+.act-btn.cont:hover{background:var(--green);color:#fff}
 .rev-note{display:flex;align-items:center;gap:8px;padding:12px 24px;background:var(--green-s);color:#0c7a43;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--line)}
 .bdg.s-RESUELTA{background:var(--green-s);color:var(--green)}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:12px 22px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow-lg);z-index:200;opacity:0;pointer-events:none;transition:.25s}
@@ -432,7 +437,10 @@ function showApp(){$('#login-overlay').classList.add('hidden');const em=_session
 const state={view:'resumen',dias:0,desde:'',hasta:'',verEliminadas:false,facturas:[],incidencias:[],proveedoresBD:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
 let chartMes=null;
 const PEND=['ILEGIBLE','EN_REVISION','DUPLICADO_PENDIENTE','PENDIENTE_CRITERIO'];
-const LABEL={VALIDADA:'Validada',EXPORTADA:'Exportada AS400',ILEGIBLE:'Ilegible',EN_REVISION:'En revisión',DUPLICADO_PENDIENTE:'Duplicado pendiente',PENDIENTE_CRITERIO:'Criterio pendiente',RECHAZADA:'Rechazada',COMPLETADA:'Completada'};
+// Facturas que ya no requieren trabajo de revisión: dadas por buenas, exportadas
+// o ya asentadas en el AS400.
+const OK_CERRADAS=['VALIDADA','EXPORTADA','CONTABILIZADA'];
+const LABEL={VALIDADA:'Validada',CONTABILIZADA:'Contabilizada',EXPORTADA:'Exportada AS400',ILEGIBLE:'Ilegible',EN_REVISION:'En revisión',DUPLICADO_PENDIENTE:'Duplicado pendiente',PENDIENTE_CRITERIO:'Criterio pendiente',RECHAZADA:'Rechazada',COMPLETADA:'Completada'};
 const estadoLbl=e=>LABEL[e]||e||'—';
 
 /* ---------- helpers ---------- */
@@ -599,7 +607,7 @@ function render(){
 function metrics(ff){
   const importe=ff.reduce((s,f)=>s+(+f.total_factura||0),0);
   const revision=ff.filter(f=>PEND.includes(f.estado)).length;
-  const validadas=ff.filter(f=>['VALIDADA','EXPORTADA'].includes(f.estado)).length;
+  const validadas=ff.filter(f=>OK_CERRADAS.includes(f.estado)).length;
   return{total:ff.length,importe,revision,validadas};
 }
 function facturasPendientes(){
@@ -650,7 +658,9 @@ function filtradas(){
   let ff=state.facturas.slice();
   if(state.quickFilter==='revision')ff=ff.filter(f=>PEND.includes(f.estado));
   else if(state.quickFilter==='duplicados')ff=ff.filter(f=>f.es_duplicado||f.estado==='DUPLICADO_PENDIENTE');
-  else if(state.quickFilter==='validadas')ff=ff.filter(f=>['VALIDADA','EXPORTADA'].includes(f.estado));
+  else if(state.quickFilter==='validadas')ff=ff.filter(f=>OK_CERRADAS.includes(f.estado));
+  else if(state.quickFilter==='contabilizadas')ff=ff.filter(f=>f.estado==='CONTABILIZADA');
+  else if(state.quickFilter==='porcontabilizar')ff=ff.filter(f=>f.estado==='VALIDADA');
   else if(state.quickFilter==='mes'){const n=new Date();ff=ff.filter(f=>{const d=new Date(f.fecha_factura||f.fecha_recepcion);return !isNaN(d)&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});}
   if(state.fProv)ff=ff.filter(f=>nombreProv(f)===state.fProv);
   if(state.fEstado)ff=ff.filter(f=>f.estado===state.fEstado);
@@ -671,7 +681,7 @@ function viewFacturas(){
   const provs=[...new Set(state.facturas.map(nombreProv))].sort();
   const estados=[...new Set(state.facturas.map(f=>f.estado).filter(Boolean))].sort();
   const ff=filtradas();
-  const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['validadas','Validadas'],['mes','Este mes']];
+  const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['validadas','Validadas'],['porcontabilizar','Por contabilizar'],['contabilizadas','Contabilizadas'],['mes','Este mes']];
   const chipElim=`<button class="chip ${state.verEliminadas?'active':''}" data-elim="1" title="Facturas quitadas del listado">Eliminadas</button>`;
   return `<div class="card">
     <div class="chips-row">
@@ -845,9 +855,12 @@ async function openDrawer(id){
     ${!f.eliminada?`<div class="dr-actions">
       ${esPend?`<button class="act-btn ok" data-act="VALIDADA" data-id="${f.id}">${svg(ICN.check)}Validar</button>
       <button class="act-btn no" data-act="RECHAZADA" data-id="${f.id}">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}Rechazar</button>`:''}
+      ${f.estado==='VALIDADA'?`<button class="act-btn cont" data-act="CONTABILIZADA" data-id="${f.id}" title="El asiento ya está hecho en el AS400">${svg('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h8M8 14h4"/>')}Marcar contabilizada</button>`:''}
+      ${f.estado==='CONTABILIZADA'?`<button class="act-btn del" data-act="VALIDADA" data-id="${f.id}" title="Deshacer: volver a dejarla pendiente de contabilizar">${svg('<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>')}Deshacer contabilizada</button>`:''}
       <button class="act-btn del" data-del="${f.id}" title="Quitar del listado y del Excel de contabilidad">${svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>')}Eliminar</button>
     </div>`:''}
-    ${rev?`<div class="rev-note">${svg(ICN.check,'var(--green)').replace('viewBox','width="15" height="15" viewBox')}Revisada manualmente · ${dtL(rev.fecha)} → <b>${esc(rev.accion)}</b></div>`:''}
+    ${rev?`<div class="rev-note">${svg(ICN.check,'var(--green)').replace('viewBox','width="15" height="15" viewBox')}Revisada manualmente · ${dtL(rev.fecha)} → <b>${esc(rev.accion)}</b>${rev.por?` · ${esc(rev.por)}`:''}</div>`:''}
+    ${j?._contabilizacion?`<div class="rev-note">${svg(ICN.check,'var(--green)').replace('viewBox','width="15" height="15" viewBox')}Contabilizada en el AS400 · ${dtL(j._contabilizacion.fecha)}${j._contabilizacion.por?` · ${esc(j._contabilizacion.por)}`:''}</div>`:''}
     <div class="dr-sec">
       <div class="dr-sec-t">${svg('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/>')}Proveedor</div>
       <div class="kv">
@@ -918,7 +931,7 @@ async function openDrawer(id){
     </div>
     <div class="dr-sec">
       <div class="dr-sec-t">${svg(ICN.alert)}Incidencias (${inc.length})</div>
-      ${inc.length?inc.map(i=>`<div class="inc-mini"><div class="inc-ic ${i.tipo}" style="width:30px;height:30px">${svg(i.tipo==='AVISO'?ICN.info:ICN.alert)}</div><div class="inc-body"><div class="inc-top"><span class="bdg t-${i.tipo}">${esc(i.tipo)}</span><span class="inc-code">${esc(i.codigo_validacion||'')}</span></div><div style="font-size:13px;font-weight:600;margin-top:3px">${esc(i.descripcion||'')}</div></div></div>`).join(''):'<div style="color:var(--green);font-size:13px;display:flex;align-items:center;gap:7px;padding:4px 0">'+svg('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>','var(--green)').replace('viewBox','width="16" height="16" viewBox')+'Sin incidencias. Validación correcta.</div>'}
+      ${inc.length?inc.map(i=>`<div class="inc-mini"><div class="inc-ic ${i.tipo}" style="width:30px;height:30px">${svg(i.tipo==='AVISO'?ICN.info:ICN.alert)}</div><div class="inc-body"><div class="inc-top"><span class="bdg t-${i.tipo}">${esc(i.tipo)}</span><span class="inc-code">${esc(i.codigo_validacion||'')}</span></div><div style="font-size:13px;font-weight:600;margin-top:3px">${esc(i.descripcion||'')}</div>${(i.dato_esperado!=null||i.dato_recibido!=null)?`<div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:14px;flex-wrap:wrap">${i.dato_esperado!=null?`<span>Esperado: <b style="color:var(--ink-2)">${esc(String(i.dato_esperado))}</b></span>`:''}${i.dato_recibido!=null?`<span>Recibido: <b style="color:var(--ink-2)">${esc(String(i.dato_recibido))}</b></span>`:''}</div>`:''}</div></div>`).join(''):'<div style="color:var(--green);font-size:13px;display:flex;align-items:center;gap:7px;padding:4px 0">'+svg('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>','var(--green)').replace('viewBox','width="16" height="16" viewBox')+'Sin incidencias. Validación correcta.</div>'}
     </div>
     ${(()=>{
       // Qué respaldo tiene la factura. Solo cuenta el documento en sí: que en la
@@ -953,6 +966,11 @@ async function openDrawer(id){
       const firmas=Array.isArray(j._albaranes_verificados)?j._albaranes_verificados:[];
       const sinFirmar=firmas.length&&!firmas.some(a=>a.firmado);
       if(tieneAlb&&sinFirmar)tieneAlb=false;
+      // Un pedido se sirve por partes: la factura junta varias entregas y cada una
+      // tiene su albarán. Están todos o la factura no está respaldada.
+      const cob=j._albaranes_cobertura||null;
+      const faltanAlb=(cob&&Array.isArray(cob.faltan))?cob.faltan:[];
+      if(tieneAlb&&cob&&(cob.citados||[]).length&&!cob.completo)tieneAlb=false;
       // Se dice qué archivo es, no "documento aparte": quien revisa necesita
       // saber cuál buscar en el correo, no que exista alguno.
       const nombresAdj=t=>{const n=adj.filter(a=>a.tipo===t).map(a=>a.nombre||'');
@@ -992,11 +1010,14 @@ async function openDrawer(id){
               tienePed,
               !tienePed&&citaPed?`La factura lo cita (${esc(citaPed)}) pero el documento no está`:'')}
         ${doc('Albarán',
-              tieneAlb?(albJ.length?`dentro del PDF de la factura (${albJ.length})`:nombresAdj('ALBARAN'))
-                      :(sinFirmar?`${esc(firmas.map(a=>a.documento).filter(Boolean)[0]||'')} — sin firmar`:'no ha llegado'),
+              tieneAlb?(cob&&cob.citados&&cob.citados.length>1?`las ${cob.citados.length} entregas, con su albarán firmado`
+                        :(albJ.length?`dentro del PDF de la factura (${albJ.length})`:nombresAdj('ALBARAN')))
+                      :(faltanAlb.length?`han llegado ${(cob.presentes||[]).length} de ${cob.citados.length} entregas`
+                        :(sinFirmar?`${esc(firmas.map(a=>a.documento).filter(Boolean)[0]||'')} — sin firmar`:'no ha llegado')),
               tieneAlb,
-              sinFirmar?'Es el albarán que emite el proveedor, sin firma ni sello: no prueba que Montero recibiera la mercancía'
-                       :(!tieneAlb&&albCitados.length?`La factura lo cita (${esc(albCitados.join(', '))}) pero el documento no está`:''))}`}
+              faltanAlb.length?`El pedido se sirvió por partes y cada entrega necesita su albarán. Falta el de: ${esc(faltanAlb.slice(0,8).join(', '))}`
+              :(sinFirmar?'Es el albarán que emite el proveedor, sin firma ni sello: no prueba que Montero recibiera la mercancía'
+                       :(!tieneAlb&&albCitados.length?`La factura lo cita (${esc(albCitados.join(', '))}) pero el documento no está`:'')))}`}
         ${transporte.map(a=>doc('Transporte',`${esc(a.nombre||'')} — acredita el envío, no la mercancía`,true,'')).join('')}
         ${(!esAbono&&(!tienePed||!tieneAlb))?`<div style="margin-top:10px;font-size:12.5px;color:var(--muted);line-height:1.5">Sin ${!tienePed&&!tieneAlb?'pedido ni albarán':(!tienePed?'el pedido':'el albarán')} no se puede comprobar que lo facturado sea lo que Montero pidió y recibió, así que la factura no se da por validada.</div>`:''}
         <details class="raw"><summary>Ver datos extraídos (JSON)</summary><pre>${esc(JSON.stringify(f.json_extraccion_ia,null,2))}</pre></details>
@@ -1036,18 +1057,29 @@ async function restaurarFactura(id){
 }
 async function resolverFactura(id,nuevoEstado){
   const f=state.facturas.find(x=>x.id===id);if(!f)return;
-  const accionTxt=nuevoEstado==='VALIDADA'?'validar':'rechazar';
+  // Deshacer una contabilización es volver a VALIDADA desde CONTABILIZADA. Hay que
+  // borrar el registro, no solo cambiar el estado: si se queda, el recálculo la
+  // devuelve a contabilizada en la siguiente pasada.
+  const esDeshacer=f.estado==='CONTABILIZADA'&&nuevoEstado==='VALIDADA';
+  const ACC={VALIDADA:'validar',RECHAZADA:'rechazar',CONTABILIZADA:'dar por contabilizada en el AS400'};
+  const accionTxt=esDeshacer?'dejar de dar por contabilizada':(ACC[nuevoEstado]||'cambiar');
   if(!confirm(`¿Seguro que quieres ${accionTxt} la factura ${f.numero_factura||''}?`))return;
   const ia=Object.assign({},f.json_extraccion_ia||{});
+  const quien=(_session?.user?.email||'Panel');
   // Queda registrado quién la revisó: las facturas se conservan 6 años y la
   // decisión de validar o rechazar tiene que poder atribuirse a una persona.
-  ia._revision={accion:nuevoEstado,fecha:new Date().toISOString(),por:(_session?.user?.email||'Panel')};
+  // Contabilizar se guarda aparte, en _contabilizacion, para no pisar el registro
+  // de quién la validó: son dos decisiones distintas y las dos hay que poder mirarlas.
+  if(nuevoEstado==='CONTABILIZADA')ia._contabilizacion={fecha:new Date().toISOString(),por:quien};
+  else if(esDeshacer)delete ia._contabilizacion;
+  else ia._revision={accion:nuevoEstado,fecha:new Date().toISOString(),por:quien};
   try{
     const tok=getToken()||SB_ANON;
     const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({estado:nuevoEstado,json_extraccion_ia:ia})});
     const data=await r.json().catch(()=>[]);
     if(!r.ok||!Array.isArray(data)||!data.length)throw new Error('no_persistido');
-    closeDrawer();toast(nuevoEstado==='VALIDADA'?'Factura validada':'Factura rechazada');await loadAll();
+    const MSG={VALIDADA:'Factura validada',RECHAZADA:'Factura rechazada',CONTABILIZADA:'Factura marcada como contabilizada'};
+    closeDrawer();toast(esDeshacer?'Ya no consta como contabilizada':(MSG[nuevoEstado]||'Factura actualizada'));await loadAll();
   }catch(e){console.error(e);toast('No se pudo guardar (falta permiso de escritura)','err');}
 }
 async function guardarPedidoMontero(id){
@@ -1077,6 +1109,7 @@ function openLegend(){
     <div class="dr-sec">
       <div class="dr-sec-t">${svg(ICN.file)}Estado de la factura</div>
       ${it('VALIDADA','Correcta y lista para contabilizar. Pasó todas las comprobaciones automáticas.')}
+      ${it('CONTABILIZADA','El asiento ya está hecho en el AS400, confirmado por una persona. Estado final. No es lo mismo que exportada: exportar solo genera el Excel.')}
       ${it('EN_REVISION','Necesita que una persona la mire. El motivo indica por qué (importes, dirección, duplicado, sin pedido…).')}
       ${it('ILEGIBLE','La IA no pudo leer el documento (foto borrosa o mal escaneada). Reenviar o introducir a mano.')}
       ${it('RECHAZADA','Descartada: no es una factura válida o se rechazó en revisión. Estado final.')}
@@ -1206,11 +1239,24 @@ async function exportAS400(){
   const btn=$('#btn-export-as400');
   if(btn&&btn.disabled)return;
   const base=state.view==='facturas'?filtradas():state.facturas;
-  const OK_EXPORT=['RECIBIDA','VALIDADA'];
-  const ff=base.filter(f=>OK_EXPORT.includes(f.estado)&&!f.exportada_as400&&!f.es_duplicado&&!f.eliminada);
+  // Dos usos del mismo botón. Mirando "Contabilizadas" vuelve a sacar el Excel de
+  // esas, tantas veces como haga falta y sin tocar nada: si alguien pierde el
+  // fichero tiene que poder recuperarlo. En cualquier otra vista exporta las
+  // validadas y las pasa a contabilizadas, que es el trabajo de llevarlas al AS400.
+  const rehacer=state.view==='facturas'&&state.quickFilter==='contabilizadas';
+  const ff=rehacer
+    ? base.filter(f=>f.estado==='CONTABILIZADA'&&!f.es_duplicado&&!f.eliminada)
+    : base.filter(f=>['RECIBIDA','VALIDADA'].includes(f.estado)&&!f.es_duplicado&&!f.eliminada);
   const excluidas=base.length-ff.length;
-  if(!ff.length){toast(base.length?'Nada nuevo que exportar: las facturas visibles ya están exportadas, rechazadas o pendientes de revisión':'No hay facturas para exportar','err');return;}
-  if(!confirm(`Se exportarán ${ff.length} factura${ff.length!==1?'s':''} a AS400 (solo recibidas/validadas y no exportadas antes).${excluidas?`\nSe excluyen ${excluidas} (ya exportadas, duplicadas, rechazadas o en revisión).`:''}\n\n¿Continuar?`))return;
+  if(!ff.length){
+    toast(rehacer?'No hay facturas contabilizadas que descargar'
+         :(base.length?'Nada que exportar: las facturas visibles están rechazadas, en revisión o ya contabilizadas'
+                      :'No hay facturas para exportar'),'err');
+    return;
+  }
+  if(!confirm(rehacer
+      ?`Se volverá a descargar el Excel de ${ff.length} factura${ff.length!==1?'s':''} ya contabilizada${ff.length!==1?'s':''}.\nNo cambia nada: es solo una copia del mismo fichero.\n\n¿Continuar?`
+      :`Se exportarán ${ff.length} factura${ff.length!==1?'s':''} al AS400 y pasarán a CONTABILIZADAS.${excluidas?`\nSe excluyen ${excluidas} (duplicadas, rechazadas o en revisión).`:''}\n\nPodrás volver a descargar este Excel cuando quieras desde el filtro "Contabilizadas".\n\n¿Continuar?`))return;
   if(btn)btn.disabled=true;
   try{
   const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Cuenta Contable','Artículo',
@@ -1258,17 +1304,43 @@ async function exportAS400(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'AS400');
   XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
-  await marcarExportadasAS400(ff.map(f=>f.id));
+  if(rehacer)toast(`Excel de ${ff.length} factura${ff.length!==1?'s':''} contabilizada${ff.length!==1?'s':''} descargado de nuevo`);
+  else await marcarContabilizadas(ff);
   }finally{if(btn)btn.disabled=false;}
 }
-async function marcarExportadasAS400(ids){
-  if(!ids.length)return;
+// Se marca DESPUÉS de generar el Excel: si esto falla, el fichero ya está en el
+// disco y las facturas siguen en validadas, que es el estado recuperable.
+async function marcarContabilizadas(ff){
+  if(!ff.length)return;
   const tok=getToken()||SB_ANON;
-  const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=in.(${ids.join(',')})`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({exportada_as400:true})});
-  const data=await r.json().catch(()=>[]);
-  if(!r.ok||!Array.isArray(data)||!data.length){toast('Excel generado, pero no se pudieron marcar como exportadas — vuelve a iniciar sesión','err');return;}
-  data.forEach(row=>{const f=state.facturas.find(x=>x.id===row.id);if(f)f.exportada_as400=true;});
-  toast(`${data.length} factura${data.length!==1?'s':''} marcada${data.length!==1?'s':''} como exportada${data.length!==1?'s':''} a AS400`);render();
+  const quien=(_session?.user?.email||'Panel');
+  const ahora=new Date().toISOString();
+  // Una petición por factura: cada una lleva su propio json_extraccion_ia y hay que
+  // dejar escrito quién y cuándo la contabilizó, que se conserva 6 años.
+  const res=await Promise.all(ff.map(async f=>{
+    const ia=Object.assign({},f.json_extraccion_ia||{});
+    ia._contabilizacion={fecha:ahora,por:quien};
+    try{
+      const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${f.id}`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({estado:'CONTABILIZADA',exportada_as400:true,fecha_exportacion_as400:ahora,json_extraccion_ia:ia})});
+      if(!r.ok)return {id:f.id,ok:false,code:r.status};
+      const d=await r.json().catch(()=>[]);
+      return {id:f.id,ok:Array.isArray(d)&&d.length,ia};
+    }catch(e){return {id:f.id,ok:false};}
+  }));
+  const bien=res.filter(x=>x.ok);
+  bien.forEach(x=>{const f=state.facturas.find(y=>y.id===x.id);
+    if(f){f.estado='CONTABILIZADA';f.exportada_as400=true;f.json_extraccion_ia=x.ia;}});
+  if(!bien.length){
+    // El 400 aquí casi siempre es que falta la migración 009 en Supabase: la
+    // columna estado todavía no admite CONTABILIZADA.
+    const c=res.find(x=>x.code)||{};
+    toast(c.code===400?'Excel descargado, pero falta aplicar la migración 009 en Supabase para poder marcarlas como contabilizadas'
+                      :'Excel descargado, pero no se pudieron marcar — vuelve a iniciar sesión','err');
+  }else{
+    toast(`${bien.length} factura${bien.length!==1?'s':''} contabilizada${bien.length!==1?'s':''}`
+          +(bien.length<ff.length?` · ${ff.length-bien.length} sin marcar`:''));
+  }
+  render();
 }
 
 /* ---------- init ---------- */
