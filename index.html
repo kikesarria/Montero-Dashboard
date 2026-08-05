@@ -627,7 +627,7 @@ function viewResumen(){
   const kpi=(ic,cls,val,lbl,extra='')=>`<div class="kpi ${extra}"><div class="kpi-top"><div class="kpi-ic ${cls}">${svg(ic)}</div></div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
   return `
   <div class="kpis">
-    ${kpi(ICN.check,'green',`${pctAuto}%`,`Validadas en automático (${m.validadas} de ${m.total})`,'clk" data-go="validadas')}
+    ${kpi(ICN.check,'green',`${pctAuto}%`,`Validadas en automático (${m.validadas} de ${m.total})`,'clk" data-go="aprobadas')}
     ${kpi(ICN.alert,'amber',m.revision,'Requieren revisión','clk" data-go="revision')}
     ${kpi(ICN.file,'blue',m.total,'Facturas en el periodo')}
     ${kpi(ICN.euro,'green',eurS(m.importe),'Importe total')}
@@ -658,9 +658,12 @@ function filtradas(){
   let ff=state.facturas.slice();
   if(state.quickFilter==='revision')ff=ff.filter(f=>PEND.includes(f.estado));
   else if(state.quickFilter==='duplicados')ff=ff.filter(f=>f.es_duplicado||f.estado==='DUPLICADO_PENDIENTE');
-  else if(state.quickFilter==='validadas')ff=ff.filter(f=>OK_CERRADAS.includes(f.estado));
+  // Aprobadas = todo lo que ya pasó el corte, esté contabilizado o no. Las otras
+  // dos parten eso en las dos mitades del trabajo: lo que falta por llevar al
+  // AS400 (validadas) y lo que ya está asentado (contabilizadas).
+  else if(state.quickFilter==='aprobadas')ff=ff.filter(f=>OK_CERRADAS.includes(f.estado));
+  else if(state.quickFilter==='validadas')ff=ff.filter(f=>f.estado==='VALIDADA');
   else if(state.quickFilter==='contabilizadas')ff=ff.filter(f=>f.estado==='CONTABILIZADA');
-  else if(state.quickFilter==='porcontabilizar')ff=ff.filter(f=>f.estado==='VALIDADA');
   else if(state.quickFilter==='mes'){const n=new Date();ff=ff.filter(f=>{const d=new Date(f.fecha_factura||f.fecha_recepcion);return !isNaN(d)&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});}
   if(state.fProv)ff=ff.filter(f=>nombreProv(f)===state.fProv);
   if(state.fEstado)ff=ff.filter(f=>f.estado===state.fEstado);
@@ -681,7 +684,7 @@ function viewFacturas(){
   const provs=[...new Set(state.facturas.map(nombreProv))].sort();
   const estados=[...new Set(state.facturas.map(f=>f.estado).filter(Boolean))].sort();
   const ff=filtradas();
-  const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['validadas','Validadas'],['porcontabilizar','Por contabilizar'],['contabilizadas','Contabilizadas'],['mes','Este mes']];
+  const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['aprobadas','Aprobadas'],['validadas','Validadas'],['contabilizadas','Contabilizadas'],['mes','Este mes']];
   const chipElim=`<button class="chip ${state.verEliminadas?'active':''}" data-elim="1" title="Facturas quitadas del listado">Eliminadas</button>`;
   return `<div class="card">
     <div class="chips-row">
@@ -1143,7 +1146,7 @@ function drawCharts(){
 function bindContent(){
   document.querySelectorAll('tbody tr[data-id]').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.id));
   document.querySelectorAll('.inc[data-id]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.id));
-  document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(g==='revision'||g==='validadas'){setView('facturas');state.quickFilter=g;render();}else setView(g);});
+  document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(['revision','aprobadas','validadas','contabilizadas'].includes(g)){setView('facturas');state.quickFilter=g;render();}else setView(g);});
   document.querySelectorAll('[data-chip]').forEach(el=>el.onclick=()=>{
     state.quickFilter=el.dataset.chip;
     if(state.verEliminadas){state.verEliminadas=false;loadAll();}else render();});
