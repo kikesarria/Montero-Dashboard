@@ -454,6 +454,17 @@ const dtL=d=>d?new Date(d).toLocaleString('es-ES',{day:'2-digit',month:'short',y
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const initials=n=>String(n||'?').replace(/[^a-zA-ZÀ-ÿ ]/g,'').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?';
 function nombreProv(f){const j=f.json_extraccion_ia||{};return j?.proveedor?.nombre||j?.datos_extraidos?.proveedor?.nombre||'Sin identificar';}
+// Un mismo proveedor se escribe distinto según la factura ("RB Components, S.L"
+// y "RB Components, S.L."), y así salía partido en dos fichas: quien miraba qué
+// se le había comprado a SECODI veía 3 facturas en una y 1 en otra. Se agrupa por
+// el nombre sin puntuación ni forma jurídica; para enseñarlo se usa la forma más
+// repetida, que es la que el proveedor pone habitualmente.
+function claveProv(f){return normProv(nombreProv(f))||nombreProv(f);}
+function nombreCanonico(clave){
+  const cuenta={};
+  state.facturas.forEach(f=>{if(claveProv(f)===clave){const n=nombreProv(f);cuenta[n]=(cuenta[n]||0)+1;}});
+  return Object.keys(cuenta).sort((a,b)=>(cuenta[b]-cuenta[a])||(b.length-a.length))[0]||clave;
+}
 function nifProv(f){const j=f.json_extraccion_ia||{};return j?.proveedor?.nif_cif||j?.datos_extraidos?.proveedor?.nif_cif||null;}
 function lineasDe(f){const j=f.json_extraccion_ia||{};return j?.factura?.lineas||j?.datos_extraidos?.factura?.lineas||[];}
 const ICN={
@@ -626,7 +637,7 @@ function updateNav(){
   $('#nav-fac').textContent=state.facturas.length;
   // el contador refleja FACTURAS afectadas, no incidencias sueltas (coherente con la vista agrupada)
   $('#nav-inc').textContent=new Set(state.incidencias.filter(i=>i.estado==='ABIERTA').map(i=>i.factura_id)).size;
-  const provs=new Set(state.facturas.map(nombreProv));$('#nav-prov').textContent=provs.size;
+  const provs=new Set(state.facturas.map(claveProv));$('#nav-prov').textContent=provs.size;
 }
 
 /* ---------- router ---------- */
@@ -709,7 +720,9 @@ function filtradas(){
   else if(state.quickFilter==='validadas')ff=ff.filter(f=>f.estado==='VALIDADA');
   else if(state.quickFilter==='contabilizadas')ff=ff.filter(f=>f.estado==='CONTABILIZADA');
   else if(state.quickFilter==='mes'){const n=new Date();ff=ff.filter(f=>{const d=new Date(f.fecha_factura||f.fecha_recepcion);return !isNaN(d)&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();});}
-  if(state.fProv)ff=ff.filter(f=>nombreProv(f)===state.fProv);
+  // El desplegable guarda la clave agrupada, no el nombre suelto: filtrar por
+  // "SECODI" tiene que traer sus 4 facturas, no las 3 de una de las dos formas.
+  if(state.fProv)ff=ff.filter(f=>claveProv(f)===state.fProv);
   if(state.fEstado)ff=ff.filter(f=>f.estado===state.fEstado);
   if(state.search){const q=state.search.toLowerCase();ff=ff.filter(f=>(f.numero_factura||'').toLowerCase().includes(q)||nombreProv(f).toLowerCase().includes(q)||(nifProv(f)||'').toLowerCase().includes(q));}
   const {k,dir}=state.sort;
@@ -725,7 +738,8 @@ function filtradas(){
   return ff;
 }
 function viewFacturas(){
-  const provs=[...new Set(state.facturas.map(nombreProv))].sort();
+  const provs=[...new Set(state.facturas.map(claveProv))]
+    .map(k=>({k,n:nombreCanonico(k)})).sort((a,b)=>a.n.localeCompare(b.n,'es'));
   const estados=[...new Set(state.facturas.map(f=>f.estado).filter(Boolean))].sort();
   const ff=filtradas();
   const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['aprobadas','Aprobadas'],['validadas','Validadas'],['contabilizadas','Contabilizadas'],['mes','Este mes']];
@@ -736,7 +750,7 @@ function viewFacturas(){
     </div>
     <div class="tbl-tools">
       <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor o NIF…" value="${esc(state.search)}"></div>
-      <select class="sel" id="f-prov"><option value="">Todos los proveedores</option>${provs.map(p=>`<option ${p===state.fProv?'selected':''}>${esc(p)}</option>`).join('')}</select>
+      <select class="sel" id="f-prov"><option value="">Todos los proveedores</option>${provs.map(p=>`<option value="${esc(p.k)}" ${p.k===state.fProv?'selected':''}>${esc(p.n)}</option>`).join('')}</select>
       <select class="sel" id="f-estado"><option value="">Todos los estados</option>${estados.map(e=>`<option value="${esc(e)}" ${e===state.fEstado?'selected':''}>${esc(estadoLbl(e))}</option>`).join('')}</select>
       <span class="card-meta" style="margin-left:auto">${ff.length} resultado${ff.length!==1?'s':''}</span>
     </div>
@@ -828,7 +842,7 @@ function listaIncidencias(inc){
 /* ---------- PROVEEDORES ---------- */
 function statsProveedores(){
   const map={};
-  state.facturas.forEach(f=>{const n=nombreProv(f);if(!map[n])map[n]={nombre:n,nif:nifProv(f),num:0,imp:0,conf:[],estados:{},facturas:[]};const p=map[n];p.num++;p.imp+=+f.total_factura||0;if(f.confianza_extraccion!=null)p.conf.push(+f.confianza_extraccion);p.estados[f.estado]=(p.estados[f.estado]||0)+1;p.facturas.push(f);});
+  state.facturas.forEach(f=>{const k=claveProv(f);if(!map[k])map[k]={clave:k,nombre:nombreCanonico(k),nif:nifProv(f),num:0,imp:0,conf:[],estados:{},facturas:[]};const p=map[k];p.num++;p.imp+=+f.total_factura||0;if(f.confianza_extraccion!=null)p.conf.push(+f.confianza_extraccion);p.estados[f.estado]=(p.estados[f.estado]||0)+1;p.facturas.push(f);});
   return Object.values(map).sort((a,b)=>b.imp-a.imp);
 }
 function viewProveedores(){
@@ -837,7 +851,7 @@ function viewProveedores(){
   if(!provs.length)return`<div class="card"><div class="empty">${svg(ICN.inbox)}<p>Sin proveedores</p></div></div>`;
   const maxImp=provs[0].imp||1;
   const rows=provs.map(p=>{
-    return `<tr data-prov="${esc(p.nombre)}">
+    return `<tr data-prov="${esc(p.clave)}">
       <td><div class="prov-cell"><div class="prov-av">${initials(p.nombre)}</div><div><div class="cell-strong">${esc(p.nombre)}</div>${p.nif?`<div class="mono" style="font-size:11px;color:var(--faint)">${esc(p.nif)}</div>`:''}</div></div></td>
       <td class="r cell-strong">${p.num}</td>
       <td class="r"><div style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><div class="rank-bar" style="width:90px;margin:0"><div class="rank-fill" style="width:${Math.round(p.imp/maxImp*100)}%"></div></div><b>${eur(p.imp)}</b></div></td>
@@ -847,8 +861,8 @@ function viewProveedores(){
   return `<div class="card"><div class="card-h"><div class="card-t">${svg('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/>')}Proveedores</div><span class="card-meta">${provs.length} activos · clic para ver detalle</span></div>
   <div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th class="r">Facturas</th><th class="r">Importe total</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
-function viewProveedorDetalle(nombre){
-  const p=statsProveedores().find(x=>x.nombre===nombre);
+function viewProveedorDetalle(clave){
+  const p=statsProveedores().find(x=>x.clave===clave);
   if(!p)return viewProveedores();
   const conf=p.conf.length?Math.round(p.conf.reduce((a,b)=>a+b,0)/p.conf.length*100):null;
   const ff=p.facturas.slice().sort((a,b)=>new Date(b.fecha_factura||b.fecha_recepcion)-new Date(a.fecha_factura||a.fecha_recepcion));
