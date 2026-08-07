@@ -442,6 +442,12 @@ const PEND=['ILEGIBLE','EN_REVISION','DUPLICADO_PENDIENTE','PENDIENTE_CRITERIO']
 // Facturas que ya no requieren trabajo de revisión: dadas por buenas, exportadas
 // o ya asentadas en el AS400.
 const OK_CERRADAS=['VALIDADA','EXPORTADA','CONTABILIZADA'];
+// Si descargar el Excel de AS400 pasa las facturas a CONTABILIZADA por sí solo.
+// Apagado el 07/08/2026: el Excel se lleva a contabilidad, pero el asiento puede
+// tardar días o no hacerse — darlas por contabilizadas al descargar volvía a
+// mezclar "me llevé el fichero" con "está asentado". Mientras esté en false se
+// marcan una a una desde la ficha, que es una decisión consciente de quien mira.
+const AUTO_CONTABILIZAR=false;
 const LABEL={VALIDADA:'Validada',CONTABILIZADA:'Contabilizada',EXPORTADA:'Exportada AS400',ILEGIBLE:'Ilegible',EN_REVISION:'En revisión',DUPLICADO_PENDIENTE:'Duplicado pendiente',PENDIENTE_CRITERIO:'Criterio pendiente',RECHAZADA:'Rechazada',COMPLETADA:'Completada'};
 const estadoLbl=e=>LABEL[e]||e||'—';
 
@@ -1367,7 +1373,12 @@ async function exportAS400(){
   XLSX.utils.book_append_sheet(wb,ws,'AS400');
   XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
   if(rehacer)toast(`Excel de ${ff.length} factura${ff.length!==1?'s':''} contabilizada${ff.length!==1?'s':''} descargado de nuevo`);
-  else await marcarContabilizadas(ff);
+  // Desactivado a petición de Kike (07/08/2026): descargar el Excel NO da la
+  // factura por contabilizada mientras el asiento no esté hecho de verdad en el
+  // AS400. Se marcan a mano desde la ficha, con el botón "Marcar contabilizada".
+  // Para volver al paso automático, poner AUTO_CONTABILIZAR a true.
+  else if(AUTO_CONTABILIZAR)await marcarContabilizadas(ff);
+  else toast(`Excel de ${ff.length} factura${ff.length!==1?'s':''} descargado · siguen en validadas`);
   }finally{if(btn)btn.disabled=false;}
 }
 // Se marca DESPUÉS de generar el Excel: si esto falla, el fichero ya está en el
