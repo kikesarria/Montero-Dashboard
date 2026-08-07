@@ -560,9 +560,33 @@ async function loadAll(){
 }
 function cuentaContablePorNombre(nombre){
   if(!nombre)return null;
-  const n=nombre.trim().toLowerCase();
-  const p=state.proveedoresBD.find(x=>(x.nombre||'').trim().toLowerCase()===n);
+  const p=proveedorBD(nombre);
   return p?p.cuenta_contable||null:null;
+}
+// El código de proveedor que pide Paqui para el Excel. Sale del maestro, no de
+// la factura: el proveedor no imprime el código que le ha puesto Montero.
+function codigoProveedorPorNombre(nombre){
+  const p=proveedorBD(nombre);
+  return p?p.codigo_proveedor||null:null;
+}
+// El maestro guarda nombres comerciales ("VEMASA") y la factura trae la razón
+// social ("VEMASA, S.L."), así que se comparan sin forma jurídica ni puntuación.
+// Solo se acepta cuando hay UNA candidata: emparejar a medias metería el código
+// de otro proveedor en un asiento contable, que es peor que dejarlo vacío.
+function normProv(s){
+  return String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toUpperCase()
+    .replace(/[^A-Z0-9 ]/g,' ')
+    .replace(/\b(S\s*L\s*U|S\s*A\s*U|S\s*L|S\s*A|SLU|SAU|SL|SA|SOCIEDAD|LIMITADA|ANONIMA|UNIPERSONAL)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+function proveedorBD(nombre){
+  const k=normProv(nombre);
+  if(!k)return null;
+  const bd=state.proveedoresBD||[];
+  const exacta=bd.filter(x=>normProv(x.nombre)===k);
+  if(exacta.length===1)return exacta[0];
+  const pref=bd.filter(x=>{const o=normProv(x.nombre);return o&&(o.startsWith(k)||k.startsWith(o));});
+  return pref.length===1?pref[0]:null;
 }
 // Las incidencias se derivan de las validaciones aplicadas a cada factura
 function deriveIncidencias(ff){
@@ -1241,7 +1265,7 @@ function exportExcel(){
     if(!d.length) d=[{tipo:f.porcentaje_iva||0, base:f.base_imponible, cuota:f.importe_iva}];
     const iva=d[0]||{};
     const row=[
-      prov.codigo_si_aparece||'', nombreProv(f), nifProv(f)||'', cuentaContablePorNombre(nombreProv(f))||'',
+      prov.codigo_si_aparece||codigoProveedorPorNombre(nombreProv(f))||'', nombreProv(f), nifProv(f)||'', cuentaContablePorNombre(nombreProv(f))||'',
       f.numero_factura||'', dt(f.fecha_factura||f.fecha_recepcion),
       (ia._pedido&&ia._pedido.numero)||f.numero_pedido_asociado||'',
       ia._ambito_iva||'NACIONAL', ia._delegacion||f.delegacion_detectada||'',
@@ -1308,7 +1332,7 @@ async function exportAS400(){
     if(!d.length) d=[{tipo:f.porcentaje_iva||0,base:f.base_imponible,cuota:f.importe_iva}];
     const base=[
       dt(f.fecha_factura||f.fecha_recepcion),
-      prov.codigo_si_aparece||'',nombreProv(f),nifProv(f)||'',
+      prov.codigo_si_aparece||codigoProveedorPorNombre(nombreProv(f))||'',nombreProv(f),nifProv(f)||'',
       cuentaContablePorNombre(nombreProv(f))||'',articulo,
       f.numero_factura||'',f.numero_pedido_montero||'',
       ia._ambito_iva||'NACIONAL',ia._delegacion||f.delegacion_detectada||''
