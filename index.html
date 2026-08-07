@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
 <style>
 :root{
   --red:#C8102E; --red-d:#a30d25; --red-soft:#fdecef;
@@ -357,6 +358,7 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
       <button class="ico-btn" id="btn-leyenda" title="Qué significa cada estado"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Leyenda</button>
       <button class="ico-btn" id="btn-export"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Resumen</button>
       <button class="ico-btn" id="btn-export-as400"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>AS400</button>
+      <button class="ico-btn" id="btn-descargar-docs" title="Descarga los PDF de las facturas que estés viendo, en una carpeta por factura"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><polyline points="12 11 12 17"/><polyline points="9 14 12 17 15 14"/></svg>Documentos</button>
       <button class="ico-btn primary" id="btn-refresh"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Actualizar</button>
     </div>
     <div class="content" id="content"></div>
@@ -484,6 +486,24 @@ async function api(path,_reintento){
   }
   if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
   return r.json();
+}
+// La URL firmada de un documento del bucket privado. La usan openPdf (para
+// abrirlo en una pestaña) y la descarga masiva (para bajarse el PDF).
+async function urlFirmada(docUrl){
+  const m=docUrl.match(/\/object\/(?:public\/|authenticated\/)?([^/]+)\/(.+)$/);
+  const bucket=m?m[1]:'facturas';
+  const filePath=m?m[2]:docUrl.split('/').pop();
+  const r=await fetch(`${SB_URL}/storage/v1/object/sign/${bucket}/${filePath}`,{
+    method:'POST',
+    headers:{apikey:SB_ANON,Authorization:`Bearer ${getToken()}`,'Content-Type':'application/json'},
+    body:JSON.stringify({expiresIn:3600})
+  });
+  if(!r.ok)throw new Error(await r.text());
+  const d=await r.json();
+  const signed=d.signedUrl||d.signedURL;
+  if(!signed)throw new Error('No signed URL returned');
+  // Supabase devuelve una ruta relativa (/object/sign/...); anteponer la base de Storage
+  return /^https?:\/\//.test(signed)?signed:`${SB_URL}/storage/v1${signed}`;
 }
 async function openPdf(docUrl){
   if(!docUrl)return;
@@ -1185,6 +1205,7 @@ $('#ov').onclick=closeDrawer;
 $('#btn-refresh').onclick=loadAll;
 $('#btn-export').onclick=exportExcel;
 $('#btn-export-as400').onclick=exportAS400;
+$('#btn-descargar-docs').onclick=descargarDocumentos;
 $('#btn-leyenda').onclick=openLegend;
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 
@@ -1344,6 +1365,87 @@ async function marcarContabilizadas(ff){
           +(bien.length<ff.length?` · ${ff.length-bien.length} sin marcar`:''));
   }
   render();
+}
+
+/* ---------- descarga masiva de documentos ---------- */
+// Lo pidió Paqui para el IVA: entrar factura por factura y bajar los PDF de uno
+// en uno es inviable. Se baja un ZIP con una carpeta por factura y dentro sus
+// documentos SUELTOS — no el expediente unido, que los quiere por separado.
+function carpetaDe(f){
+  // La barra crearía subcarpetas dentro del ZIP: "12/1427" se convertiría en una
+  // carpeta "12" con otra "1427" dentro.
+  const n=String(f.numero_factura||f.id||'sin-numero').replace(/[\\/:*?"<>|]/g,'-').trim();
+  return (dt(f.fecha_factura||f.fecha_recepcion).replace(/\//g,'-')+' '+n).slice(0,90);
+}
+// Un mismo PDF puede venir listado como ALBARAN y como PEDIDO a la vez: se baja
+// una sola vez, con los dos tipos en el nombre.
+function documentosDe(f){
+  const j=f.json_extraccion_ia||{};
+  const porUrl=new Map();
+  const suma=(url,tipo,nombre)=>{
+    if(!url)return;
+    const y=porUrl.get(url);
+    if(y){if(!y.tipos.includes(tipo))y.tipos.push(tipo);}
+    else porUrl.set(url,{url,tipos:[tipo],nombre});
+  };
+  suma(j._documento_url||j?.datos_extraidos?._documento_url,'factura',null);
+  (Array.isArray(j._adjuntos)?j._adjuntos:[]).forEach(a=>suma(a.url,(a.tipo||'documento').toLowerCase(),a.nombre));
+  return [...porUrl.values()].map(d=>{
+    const base=(d.nombre||d.url.split('/').pop()||'documento.pdf').replace(/[\\/:*?"<>|]/g,'-');
+    const conExt=/\.[a-z0-9]{2,5}$/i.test(base)?base:base+'.pdf';
+    return {url:d.url,nombre:`${d.tipos.join('+')} - ${conExt}`};
+  });
+}
+async function descargarDocumentos(){
+  const btn=$('#btn-descargar-docs');
+  if(btn&&btn.disabled)return;
+  if(typeof JSZip==='undefined'){toast('No se pudo cargar la librería de ZIP — recarga la página','err');return;}
+  const base=state.view==='facturas'?filtradas():state.facturas;
+  const ff=base.filter(f=>!f.eliminada);
+  if(!ff.length){toast('No hay facturas a la vista para descargar','err');return;}
+  const tareas=[];
+  ff.forEach(f=>documentosDe(f).forEach(d=>tareas.push({carpeta:carpetaDe(f),...d})));
+  if(!tareas.length){toast('Las facturas visibles no tienen PDF guardado','err');return;}
+  if(!confirm(`Se descargarán ${tareas.length} documento${tareas.length!==1?'s':''} de ${ff.length} factura${ff.length!==1?'s':''}, en un ZIP con una carpeta por factura.\n\nSi son muchos puede tardar un rato.\n\n¿Continuar?`))return;
+
+  const txt=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;}
+  const zip=new JSZip();
+  let hechos=0, fallos=[];
+  // De cuatro en cuatro: en serie tarda demasiado y todas a la vez satura el
+  // navegador y a Storage.
+  const cola=[...tareas];
+  const worker=async()=>{
+    while(cola.length){
+      const t=cola.shift();
+      try{
+        const r=await fetch(await urlFirmada(t.url));
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        zip.folder(t.carpeta).file(t.nombre,await r.blob());
+      }catch(e){fallos.push(`${t.carpeta}/${t.nombre}`);}
+      hechos++;
+      if(btn)btn.textContent=`Descargando ${hechos}/${tareas.length}…`;
+    }
+  };
+  try{
+    await Promise.all([worker(),worker(),worker(),worker()]);
+    if(btn)btn.textContent='Comprimiendo…';
+    const blob=await zip.generateAsync({type:'blob'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`documentos_montero_${new Date().toISOString().slice(0,10)}.zip`;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+    toast(fallos.length
+      ? `${tareas.length-fallos.length} de ${tareas.length} documentos descargados · ${fallos.length} fallaron`
+      : `${tareas.length} documento${tareas.length!==1?'s':''} en ${ff.length} carpeta${ff.length!==1?'s':''}`,
+      fallos.length?'err':undefined);
+    if(fallos.length)console.warn('No se pudieron descargar:',fallos);
+  }catch(e){
+    console.error(e);toast('No se pudo generar el ZIP','err');
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML=txt;}
+  }
 }
 
 /* ---------- init ---------- */
