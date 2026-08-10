@@ -1093,12 +1093,26 @@ async function openDrawer(id){
         </div>
       </div>`;
       // Un único botón: el expediente une factura, pedido y albarán en un PDF,
-      // con una portadilla antes de cada uno. Si no lo hay, se abre la factura.
+      // con una portadilla antes de cada uno. Si no lo hay, se abre cada
+      // documento por su lado: antes se ponía "es el único documento que hay"
+      // aunque hubiera cuatro albaranes enganchados, y no había manera de
+      // abrirlos — la ficha decía que el albarán había llegado y a la vez que no
+      // existía. Los adjuntos traen su URL desde que se emparejan; solo faltaba
+      // ofrecerla.
       const expUrl=j._expediente_url||null;
       const nDocs=1+adj.length;
-      const botonUnico=(expUrl||docUrl)
-        ?`<button class="doc-card doc-link" data-pdf="${esc(expUrl||docUrl)}" style="margin-bottom:12px;cursor:pointer;text-align:left"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">${expUrl?`Abrir todos los documentos (${nDocs})`:'Abrir la factura'}</div><div class="doc-meta">${expUrl?'Factura, pedido y albarán en un solo PDF, uno detrás de otro':'Es el único documento que hay'}</div></div><div class="doc-open">${svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>')}<span>Abrir</span></div></button>`
-        :'';
+      const ETIQ_ADJ={ALBARAN:'Albarán',PEDIDO:'Pedido',TRANSPORTE:'Documento de transporte',FACTURA:'Factura',ABONO:'Abono'};
+      const ICO_ABRIR=svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>');
+      const tarjetaDoc=(url,titulo,meta)=>`<button class="doc-card doc-link" data-pdf="${esc(url)}" style="margin-bottom:6px;cursor:pointer;text-align:left"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">${esc(titulo)}</div><div class="doc-meta">${esc(meta)}</div></div><div class="doc-open">${ICO_ABRIR}<span>Abrir</span></div></button>`;
+      const adjAbribles=adj.filter(a=>a.url);
+      const botonUnico=expUrl
+        ?`<div style="margin-bottom:12px">${tarjetaDoc(expUrl,`Abrir todos los documentos (${nDocs})`,'Factura, pedido y albarán en un solo PDF, uno detrás de otro')}</div>`
+        :(docUrl||adjAbribles.length)
+          ?`<div style="margin-bottom:12px">
+              ${docUrl?tarjetaDoc(docUrl,'Abrir la factura',adjAbribles.length?`y ${adjAbribles.length} documento${adjAbribles.length>1?'s':''} más, aquí debajo`:'Es el único documento que hay'):''}
+              ${adjAbribles.map(a=>tarjetaDoc(a.url,a.nombre||'documento',ETIQ_ADJ[a.tipo]||a.tipo||'documento')).join('')}
+            </div>`
+          :'';
       return `<div class="dr-sec">
         <div class="dr-sec-t">${svg('<path d="M9 12h6M9 16h6M9 8h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>')}Documentos de la factura</div>
         ${botonUnico}
