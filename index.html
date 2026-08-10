@@ -1157,8 +1157,18 @@ async function openDrawer(id){
       // pulsar y se abre uno solo, en el mismo orden: factura, pedido, albarán.
       const adjAbribles=adj.filter(a=>a.url);
       const ORDEN={PEDIDO:1,ALBARAN:2,TRANSPORTE:3};
-      const juntar=[...(docUrl?[{url:docUrl,tipo:esAbono?'ABONO':'FACTURA',nombre:`Factura ${f.numero_factura||''}`}]:[]),
-                    ...adjAbribles.slice().sort((a,b)=>(ORDEN[a.tipo]||9)-(ORDEN[b.tipo]||9))];
+      // Un mismo PDF suele estar en la lista varias veces, porque lleva el albarán
+      // y el pedido dentro y se guarda una entrada por cada cosa que es. Uniéndolos
+      // sin más, el documento salía dos y tres veces seguidas en el PDF —la
+      // VTA/26-002305 se veía triplicada— y tardaba de más en abrir. Se unen
+      // DOCUMENTOS, no etiquetas: cada archivo entra una sola vez.
+      const juntar=[];
+      const puestos=new Set();
+      for(const d of [...(docUrl?[{url:docUrl,tipo:esAbono?'ABONO':'FACTURA'}]:[]),
+                      ...adjAbribles.slice().sort((a,b)=>(ORDEN[a.tipo]||9)-(ORDEN[b.tipo]||9))]){
+        if(puestos.has(d.url))continue;
+        puestos.add(d.url); juntar.push(d);
+      }
       const detalle=juntar.length>1
         ?`${juntar.length} documentos en un solo PDF, uno detrás de otro`
         :'Es el único documento que hay';
