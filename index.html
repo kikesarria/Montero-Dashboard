@@ -465,12 +465,43 @@ function nombreProv(f){const j=f.json_extraccion_ia||{};return j?.proveedor?.nom
 // se le había comprado a SECODI veía 3 facturas en una y 1 en otra. Se agrupa por
 // el nombre sin puntuación ni forma jurídica; para enseñarlo se usa la forma más
 // repetida, que es la que el proveedor pone habitualmente.
-function claveProv(f){return normProv(nombreProv(f))||nombreProv(f);}
-function nombreCanonico(clave){
-  const cuenta={};
-  state.facturas.forEach(f=>{if(claveProv(f)===clave){const n=nombreProv(f);cuenta[n]=(cuenta[n]||0)+1;}});
-  return Object.keys(cuenta).sort((a,b)=>(cuenta[b]-cuenta[a])||(b.length-a.length))[0]||clave;
+// Dos facturas son del mismo proveedor si coinciden en NOMBRE o en NIF, y eso se
+// propaga: si A y B comparten nombre, y B y C comparten NIF, los tres son el mismo.
+// Hacen falta las dos señales porque las dos fallan por separado. El nombre solo
+// no une "RB Components, S.L" con "RB Components, S.L. (RAVENTOS Y BERNAD...)".
+// Y el NIF solo no une las 9 de EUROPART, donde una lectura tomó el NIF de
+// Montero (A48558803) por el del proveedor. Contando por nombre suelto salían 43
+// proveedores; los reales son 35.
+function recalcularGruposProv(){
+  const padre={};
+  const find=a=>{ if(padre[a]===undefined)padre[a]=a;
+    while(padre[a]!==a){padre[a]=padre[padre[a]];a=padre[a];} return a; };
+  const une=(a,b)=>{const ra=find(a),rb=find(b); if(ra!==rb)padre[ra]=rb;};
+  const claveNombre=f=>'N:'+(normProv(nombreProv(f))||nombreProv(f));
+  (state.facturas||[]).forEach(f=>{
+    const kn=claveNombre(f); find(kn);
+    const c=(nifProv(f)||'').toString().replace(/[^0-9]/g,'');
+    if(c.length>=7)une(kn,'F:'+c);   // 7+ cifras: un NIF, no un código suelto
+  });
+  const grupo={}, nombres={};
+  (state.facturas||[]).forEach(f=>{
+    const r=find(claveNombre(f));
+    grupo[f.id]=r;
+    (nombres[r]=nombres[r]||{});
+    const n=nombreProv(f); nombres[r][n]=(nombres[r][n]||0)+1;
+  });
+  // Se enseña la forma que más repite el proveedor, y a igualdad la más corta:
+  // "VEMASA, S.L." antes que "VEMASA, S.L. (VENTA DE MAQUINARIA SAGUNTO, S.L.)".
+  const canon={};
+  Object.keys(nombres).forEach(r=>{
+    canon[r]=Object.keys(nombres[r]).sort((a,b)=>(nombres[r][b]-nombres[r][a])||(a.length-b.length))[0];
+  });
+  state._provGrupo=grupo; state._provNombre=canon;
 }
+function claveProv(f){
+  return (state._provGrupo||{})[f.id] || 'N:'+(normProv(nombreProv(f))||nombreProv(f));
+}
+function nombreCanonico(clave){return (state._provNombre||{})[clave]||clave.replace(/^[NF]:/,'');}
 function nifProv(f){const j=f.json_extraccion_ia||{};return j?.proveedor?.nif_cif||j?.datos_extraidos?.proveedor?.nif_cif||null;}
 function lineasDe(f){const j=f.json_extraccion_ia||{};return j?.factura?.lineas||j?.datos_extraidos?.factura?.lineas||[];}
 const ICN={
@@ -572,6 +603,7 @@ async function loadAll(){
   try{
     state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable`);
   }catch(e){console.error(e);state.proveedoresBD=[];}
+  recalcularGruposProv();          // antes de pintar nada: de ahí sale quién es quién
   state.incidencias=deriveIncidencias(state.facturas);
   updateNav();render();
 }
