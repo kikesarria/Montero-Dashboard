@@ -799,7 +799,17 @@ function filtradas(){
   // "SECODI" tiene que traer sus 4 facturas, no las 3 de una de las dos formas.
   if(state.fProv)ff=ff.filter(f=>claveProv(f)===state.fProv);
   if(state.fEstado)ff=ff.filter(f=>f.estado===state.fEstado);
-  if(state.search){const q=state.search.toLowerCase();ff=ff.filter(f=>(f.numero_factura||'').toLowerCase().includes(q)||nombreProv(f).toLowerCase().includes(q)||(nifProv(f)||'').toLowerCase().includes(q));}
+  // Se busca también sin espacios, puntos, barras ni guiones. Cada proveedor
+  // escribe su número a su manera y el papel casi nunca coincide con lo guardado:
+  // la factura de VALGEPORT pone "29" y aquí está como "29/000020"; la de Racing
+  // Oil se guardó "1 002104" y quien la busca teclea "1-002104". Se daban por
+  // desaparecidas facturas que estaban, y con el NIF pasa lo mismo (B-88658372).
+  if(state.search){
+    const q=state.search.toLowerCase(), qn=q.replace(/[^a-z0-9]/g,'');
+    const pega=(v)=>{const s=String(v||'').toLowerCase();
+      return s.includes(q)||(!!qn&&s.replace(/[^a-z0-9]/g,'').includes(qn));};
+    ff=ff.filter(f=>pega(f.numero_factura)||pega(nombreProv(f))||pega(nifProv(f)));
+  }
   const {k,dir}=state.sort;
   ff.sort((a,b)=>{
     let va,vb;
