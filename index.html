@@ -9,6 +9,9 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
+<!-- Une los PDF de una factura en uno solo al vuelo, para que abrir el papeleo
+     sea siempre un botón y una pestaña, no cinco. -->
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" integrity="sha384-weMABwrltA6jWR8DDe9Jp5blk+tZQh7ugpCsF3JwSA53WZM9/14PjS5LAJNHNjAI" crossorigin="anonymous"></script>
 <style>
 :root{
   --red:#C8102E; --red-d:#a30d25; --red-soft:#fdecef;
@@ -582,6 +585,40 @@ async function openPdf(docUrl){
     toast('No se pudo abrir el PDF: '+e.message);
   }
 }
+// Abre TODOS los documentos de una factura como un único PDF, uno detrás de otro.
+// Hubo una versión con un botón por documento y era peor: obligaba a abrir cinco
+// pestañas y a ir recordando cuál era cuál. Aquí se unen en el navegador, así que
+// vale para las facturas que no tienen expediente montado en el servidor —que son
+// casi todas— sin tener que generarlo antes.
+async function openPdfsJuntos(urls){
+  if(!urls||!urls.length)return;
+  if(urls.length===1)return openPdf(urls[0]);
+  const win=window.open('about:blank','_blank');   // dentro del clic, o lo bloquea
+  try{
+    if(typeof PDFLib==='undefined')throw new Error('librería de PDF no cargada — recarga la página');
+    const salida=await PDFLib.PDFDocument.create();
+    let unidos=0;
+    for(const u of urls){
+      try{
+        const r=await fetch(await urlFirmada(u));
+        if(!r.ok)continue;
+        const src=await PDFLib.PDFDocument.load(await r.arrayBuffer(),{ignoreEncryption:true});
+        const pgs=await salida.copyPages(src,src.getPageIndices());
+        pgs.forEach(p=>salida.addPage(p));
+        unidos++;
+      }catch(_){ /* un PDF ilegible no puede impedir ver los demás */ }
+    }
+    if(!unidos)throw new Error('no se pudo leer ninguno de los documentos');
+    if(unidos<urls.length)toast(`Se han unido ${unidos} de ${urls.length} documentos`,'warn');
+    const blob=new Blob([await salida.save()],{type:'application/pdf'});
+    const url=URL.createObjectURL(blob);
+    if(win)win.location.href=url; else window.open(url,'_blank','noopener');
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(e){
+    if(win)win.close();
+    toast('No se pudieron abrir los documentos: '+e.message,'err');
+  }
+}
 // Se filtra por la FECHA DE LA FACTURA (la del documento), no por cuándo entró al
 // sistema: la contabilidad se lleva por meses según la fecha de la factura.
 function periodFilter(){
@@ -1104,14 +1141,21 @@ async function openDrawer(id){
       const ETIQ_ADJ={ALBARAN:'Albarán',PEDIDO:'Pedido',TRANSPORTE:'Documento de transporte',FACTURA:'Factura',ABONO:'Abono'};
       const ICO_ABRIR=svg('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>');
       const tarjetaDoc=(url,titulo,meta)=>`<button class="doc-card doc-link" data-pdf="${esc(url)}" style="margin-bottom:6px;cursor:pointer;text-align:left"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">${esc(titulo)}</div><div class="doc-meta">${esc(meta)}</div></div><div class="doc-open">${ICO_ABRIR}<span>Abrir</span></div></button>`;
+      // SIEMPRE un botón, nunca uno por documento: quien revisa quiere ver el
+      // papeleo de una factura de un tirón, no elegir entre cinco pestañas. Si no
+      // hay expediente montado en el servidor, se unen los PDF aquí mismo al
+      // pulsar y se abre uno solo, en el mismo orden: factura, pedido, albarán.
       const adjAbribles=adj.filter(a=>a.url);
+      const ORDEN={PEDIDO:1,ALBARAN:2,TRANSPORTE:3};
+      const juntar=[...(docUrl?[{url:docUrl,tipo:esAbono?'ABONO':'FACTURA',nombre:`Factura ${f.numero_factura||''}`}]:[]),
+                    ...adjAbribles.slice().sort((a,b)=>(ORDEN[a.tipo]||9)-(ORDEN[b.tipo]||9))];
+      const detalle=juntar.length>1
+        ?`${juntar.length} documentos en un solo PDF, uno detrás de otro`
+        :'Es el único documento que hay';
       const botonUnico=expUrl
         ?`<div style="margin-bottom:12px">${tarjetaDoc(expUrl,`Abrir todos los documentos (${nDocs})`,'Factura, pedido y albarán en un solo PDF, uno detrás de otro')}</div>`
-        :(docUrl||adjAbribles.length)
-          ?`<div style="margin-bottom:12px">
-              ${docUrl?tarjetaDoc(docUrl,'Abrir la factura',adjAbribles.length?`y ${adjAbribles.length} documento${adjAbribles.length>1?'s':''} más, aquí debajo`:'Es el único documento que hay'):''}
-              ${adjAbribles.map(a=>tarjetaDoc(a.url,a.nombre||'documento',ETIQ_ADJ[a.tipo]||a.tipo||'documento')).join('')}
-            </div>`
+        :juntar.length
+          ?`<div style="margin-bottom:12px"><button class="doc-card doc-link" data-juntar="${esc(JSON.stringify(juntar.map(d=>d.url)))}" style="cursor:pointer;text-align:left"><div class="doc-ic">${svg(ICN.file)}</div><div class="doc-info"><div class="doc-nm">${juntar.length>1?`Abrir todos los documentos (${juntar.length})`:'Abrir la factura'}</div><div class="doc-meta">${detalle}</div></div><div class="doc-open">${ICO_ABRIR}<span>Abrir</span></div></button></div>`
           :'';
       return `<div class="dr-sec">
         <div class="dr-sec-t">${svg('<path d="M9 12h6M9 16h6M9 8h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>')}Documentos de la factura</div>
@@ -1140,6 +1184,10 @@ async function openDrawer(id){
   document.querySelectorAll('#dr-body [data-del]').forEach(b=>b.onclick=()=>eliminarFactura(b.dataset.del));
   document.querySelectorAll('#dr-body [data-restaurar]').forEach(b=>b.onclick=()=>restaurarFactura(b.dataset.restaurar));
   document.querySelectorAll('#dr-body [data-pdf]').forEach(b=>b.onclick=()=>openPdf(b.dataset.pdf));
+  document.querySelectorAll('#dr-body [data-juntar]').forEach(b=>b.onclick=()=>{
+    let urls=[];try{urls=JSON.parse(b.dataset.juntar);}catch(_){}
+    openPdfsJuntos(urls);
+  });
 }
 async function eliminarFactura(id){
   const f=state.facturas.find(x=>x.id===id);if(!f)return;
