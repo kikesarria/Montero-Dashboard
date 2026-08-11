@@ -672,7 +672,15 @@ function proveedorBD(nombre){
   const exacta=bd.filter(x=>normProv(x.nombre)===k);
   if(exacta.length===1)return exacta[0];
   const pref=bd.filter(x=>{const o=normProv(x.nombre);return o&&(o.startsWith(k)||k.startsWith(o));});
-  return pref.length===1?pref[0]:null;
+  if(pref.length===1)return pref[0];
+  // El nombre de la ficha aparece dentro del de la factura, como palabras enteras:
+  // en el AS400 el proveedor es "NADINE" y la factura dice "INTERNACIONAL DEL
+  // COMERCIO NADINE S.L.". Por prefijo no casaba y 11 facturas salían al Excel sin
+  // su código. Se piden 5 letras y una sola candidata: meter el código de otro
+  // proveedor en un asiento es peor que dejarlo vacío.
+  const dentro=bd.filter(x=>{const o=normProv(x.nombre);
+    return o&&o.length>=5&&new RegExp('\\b'+o.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b').test(k);});
+  return dentro.length===1?dentro[0]:null;
 }
 // Las incidencias se derivan de las validaciones aplicadas a cada factura
 function deriveIncidencias(ff){
