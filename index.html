@@ -846,10 +846,26 @@ function viewFacturas(){
   const ff=filtradas();
   const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['aprobadas','Aprobadas'],['validadas','Validadas'],['contabilizadas','Contabilizadas'],['mes','Este mes']];
   const chipElim=`<button class="chip ${state.verEliminadas?'active':''}" data-elim="1" title="Facturas quitadas del listado">Eliminadas</button>`;
+  // Cuántas facturas están a medio comprobar. Sale aquí y no en un log del
+  // servidor: si el proceso que las lee se para, el atasco se ve crecer solo. Un
+  // automatismo que falla en silencio es peor que no tenerlo, porque se da por
+  // hecho que funciona.
+  const sinLeer=state.facturas.filter(f=>{
+    const ia=f.json_extraccion_ia||{};
+    return !f.eliminada&&!((ia._respaldo_verificado||{}).por_pagina);
+  }).length;
+  const atascadas=state.facturas.filter(f=>((f.json_extraccion_ia||{})._verificacion||{}).intentos>=3).length;
+  const avisoVerif=sinLeer?`<div style="margin:0 0 12px;padding:9px 12px;border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:8px;background:var(--card);font-size:12.5px;color:var(--muted);line-height:1.5">
+      <b style="color:var(--ink)">${sinLeer} factura${sinLeer>1?'s':''} sin comprobar del todo.</b>
+      Se ha leído su factura, pero todavía no se ha mirado página a página si trae más facturas dentro,
+      si el albarán que cita está de verdad y si viene firmado. Se hace solo cada pocos minutos.
+      ${atascadas?`<span style="color:var(--rd)"> ${atascadas} no se han podido leer tras varios intentos.</span>`:''}
+    </div>`:'';
   return `<div class="card">
     <div class="chips-row">
       ${chips.map(([k,l])=>`<button class="chip ${(state.quickFilter||'')===k?'active':''}" data-chip="${k}">${l}</button>`).join('')}${chipElim}
     </div>
+    ${avisoVerif}
     <div class="tbl-tools">
       <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor o NIF…" value="${esc(state.search)}"></div>
       <select class="sel" id="f-prov"><option value="">Todos los proveedores</option>${provs.map(p=>`<option value="${esc(p.k)}" ${p.k===state.fProv?'selected':''}>${esc(p.n)}</option>`).join('')}</select>
