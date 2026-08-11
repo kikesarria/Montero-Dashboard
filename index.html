@@ -668,6 +668,16 @@ function codigoProveedorPorNombre(nombre){
 // social ("VEMASA, S.L."), así que se comparan sin forma jurídica ni puntuación.
 // Solo se acepta cuando hay UNA candidata: emparejar a medias metería el código
 // de otro proveedor en un asiento contable, que es peor que dejarlo vacío.
+// Una persona puede validar una factura aunque le falte el pedido o el albaran:
+// su decision manda sobre la regla. Pero en el listado se veia igual que una
+// validada porque estaba todo en orden, y no es lo mismo de cara a contabilizar.
+function validadaAMano(f){
+  const ia=f.json_extraccion_ia||{};
+  if(((ia._revision||{}).accion)!=='VALIDADA')return null;
+  const faltan=(ia._validaciones||[]).filter(v=>v.codigo==='V30'||v.codigo==='V31');
+  if(!faltan.length)return null;
+  return faltan.map(v=>v.codigo==='V30'?'sin pedido':'sin albaran').join(' y ');
+}
 function normProv(s){
   return String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toUpperCase()
     .replace(/[^A-Z0-9 ]/g,' ')
@@ -794,7 +804,7 @@ function colaTrabajo(ff){
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td class="r cell-strong">${eur(f.total_factura)}</td>
-      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span></td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}</td>
       <td style="max-width:300px;color:var(--muted);font-size:12.5px"><div class="trunc" style="max-width:300px">${esc(motivoDe(f.id))}</div></td>
     </tr>`).join('');
   return`<div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th>Nº Factura</th><th class="r">Total</th><th>Estado</th><th>Motivo</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -898,7 +908,7 @@ function tablaFacturas(ff,full){
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="r cell-strong">${eur(f.total_factura)} ${warn?`<span title="Diferencia ${eur(dif)}" style="color:var(--rd)">${svg(ICN.alert).replace('viewBox','width="13" height="13" style="vertical-align:-2px" viewBox')}</span>`:''}</td>
-      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span></td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}</td>
     </tr>`;
   }).join('');
   return `<div class="tbl-wrap"><table><thead><tr>
