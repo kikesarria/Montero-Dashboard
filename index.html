@@ -815,7 +815,7 @@ function filtradas(){
   let ff=state.facturas.slice();
   // Una factura que llegó dos veces no es trabajo pendiente: es la misma otra vez,
   // y verla en el listado hace pensar que hay algo que revisar. "Si están
-  // duplicadas no tienen que aparecer" (Rubén, 12/08/2026). Siguen estando: se ven
+  // duplicadas no tienen que aparecer" (María, 12/08/2026). Siguen estando: se ven
   // en su propio filtro, para poder comprobar que se descartó la copia correcta.
   if(state.quickFilter!=='duplicados')
     ff=ff.filter(f=>f.estado!=='DUPLICADO_PENDIENTE');
