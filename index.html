@@ -804,7 +804,7 @@ function colaTrabajo(ff){
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td class="r cell-strong">${eur(f.total_factura)}</td>
-      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}</td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}</td>
       <td style="max-width:300px;color:var(--muted);font-size:12.5px"><div class="trunc" style="max-width:300px">${esc(motivoDe(f.id))}</div></td>
     </tr>`).join('');
   return`<div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th>Nº Factura</th><th class="r">Total</th><th>Estado</th><th>Motivo</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -914,7 +914,7 @@ function tablaFacturas(ff,full){
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="r cell-strong">${eur(f.total_factura)} ${warn?`<span title="Diferencia ${eur(dif)}" style="color:var(--rd)">${svg(ICN.alert).replace('viewBox','width="13" height="13" style="vertical-align:-2px" viewBox')}</span>`:''}</td>
-      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}</td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}</td>
     </tr>`;
   }).join('');
   return `<div class="tbl-wrap"><table><thead><tr>
@@ -1056,6 +1056,19 @@ async function openDrawer(id){
     </div>`:''}
     ${rev?`<div class="rev-note">${svg(ICN.check,'var(--green)').replace('viewBox','width="15" height="15" viewBox')}Revisada manualmente · ${dtL(rev.fecha)} → <b>${esc(rev.accion)}</b>${rev.por?` · ${esc(rev.por)}`:''}</div>`:''}
     ${j?._contabilizacion?`<div class="rev-note">${svg(ICN.check,'var(--green)').replace('viewBox','width="15" height="15" viewBox')}Contabilizada en el AS400 · ${dtL(j._contabilizacion.fecha)}${j._contabilizacion.por?` · ${esc(j._contabilizacion.por)}`:''}</div>`:''}
+    <div class="dr-sec">
+      <div class="dr-sec-t">${svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/>')}Observaciones</div>
+      <div style="font-size:12.5px;color:var(--muted);line-height:1.5;margin-bottom:9px">
+        Para apuntar por qué se queda pendiente, qué hay que consultar con el proveedor,
+        o por qué se ha dado por buena a mano. Lo escrito aquí se conserva con la factura.
+      </div>
+      <textarea id="inp-observaciones" rows="3" placeholder="Ej.: pendiente de que el proveedor mande el albarán firmado"
+        style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;resize:vertical;color:var(--ink);background:var(--card);box-sizing:border-box">${esc(f.notas_resolucion||'')}</textarea>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:9px">
+        <button onclick="guardarObservaciones('${f.id}')" style="padding:7px 16px;background:var(--red);color:#fff;border:none;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;font-weight:600">Guardar</button>
+        <span id="obs-estado" style="font-size:12.5px;color:var(--muted)"></span>
+      </div>
+    </div>
     <div class="dr-sec">
       <div class="dr-sec-t">${svg('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/>')}Proveedor</div>
       <div class="kv">
@@ -1316,6 +1329,28 @@ async function resolverFactura(id,nuevoEstado){
     const MSG={VALIDADA:'Factura validada',RECHAZADA:'Factura rechazada',CONTABILIZADA:'Factura marcada como contabilizada'};
     closeDrawer();toast(esDeshacer?'Ya no consta como contabilizada':(MSG[nuevoEstado]||'Factura actualizada'));await loadAll();
   }catch(e){console.error(e);toast('No se pudo guardar (falta permiso de escritura)','err');}
+}
+// Lo pidió María el 07/09/2026: "hay facturas que se tienen que quedar pendientes
+// pues hay que revisar con el proveedor, ¿se podría poner el concepto observaciones
+// y yo apunto el porqué se queda pendiente?". Se guarda en notas_resolucion, que ya
+// existía en la ficha y no usaba nadie.
+async function guardarObservaciones(id){
+  const caja=$('#inp-observaciones'); if(!caja)return;
+  const txt=caja.value.trim();
+  const aviso=$('#obs-estado'); if(aviso)aviso.textContent='guardando…';
+  const tok=getToken()||SB_ANON;
+  const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',
+    headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},
+    body:JSON.stringify({notas_resolucion:txt||null})});
+  const data=await r.json().catch(()=>[]);
+  if(!r.ok||!Array.isArray(data)||!data.length){
+    if(aviso)aviso.textContent='';
+    toast('No se pudo guardar — vuelve a iniciar sesión','err');return;
+  }
+  const f=state.facturas.find(x=>x.id===id);
+  if(f)f.notas_resolucion=txt||null;
+  if(aviso)aviso.textContent=txt?'guardado':'observaciones borradas';
+  refreshTabla();
 }
 async function guardarPedidoMontero(id){
   const val=($('#inp-pedido-montero')||{}).value||'';
