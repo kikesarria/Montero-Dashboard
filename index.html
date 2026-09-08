@@ -649,6 +649,13 @@ async function loadAll(){
   try{
     state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable`);
   }catch(e){console.error(e);state.proveedoresBD=[];}
+  // Estado del sistema: lo deja scripts/salud.py en cada pasada. Si esto falla,
+  // state.salud queda a null y el banner no sale — que es lo correcto: no se
+  // puede afirmar que todo va bien cuando ni siquiera se ha podido preguntar.
+  try{
+    const r=await api(`configuracion?select=valor,actualizado_en&clave=eq.salud_sistema`);
+    state.salud=r&&r[0]?JSON.parse(r[0].valor):null;
+  }catch(e){console.error(e);state.salud=null;}
   recalcularGruposProv();          // antes de pintar nada: de ahí sale quién es quién
   state.incidencias=deriveIncidencias(state.facturas);
   updateNav();render();
@@ -877,11 +884,30 @@ function viewFacturas(){
       si el albarán que cita está de verdad y si viene firmado. Se hace solo cada pocos minutos.
       ${atascadas?`<span style="color:var(--rd)"> ${atascadas} no se han podido leer tras varios intentos.</span>`:''}
     </div>`:'';
+  // Salud del sistema. Lo escribe scripts/salud.py en cada pasada y se enseña
+  // aquí arriba porque un aviso que hay que ir a buscar no es un aviso: el
+  // 07/09/2026 el proceso estuvo 23 horas parado y el panel siguió enseñando lo
+  // de ayer con toda normalidad. Que no aparezca nada significa que se comprobó
+  // y estaba bien; si ni siquiera hay comprobación reciente, también se dice.
+  const avisoSalud=(()=>{
+    const S=state.salud;
+    if(!S) return '';
+    const viejo=(Date.now()-new Date(S.fecha).getTime())/36e5;
+    if(viejo>2) return `<div style="margin:0 0 12px;padding:9px 12px;border:1px solid var(--rd);border-left:3px solid var(--rd);border-radius:8px;background:var(--rd-s);font-size:12.5px;line-height:1.5">
+      <b style="color:var(--rd)">El sistema no se comprueba desde hace ${viejo.toFixed(0)} horas.</b>
+      Puede que el proceso automático esté parado: lo que ves puede no estar al día.</div>`;
+    if(!S.problemas||!S.problemas.length) return '';
+    const grave=S.estado==='GRAVE';
+    return `<div style="margin:0 0 12px;padding:9px 12px;border:1px solid ${grave?'var(--rd)':'var(--line)'};border-left:3px solid ${grave?'var(--rd)':'var(--amber)'};border-radius:8px;background:${grave?'var(--rd-s)':'var(--card)'};font-size:12.5px;line-height:1.55">
+      <b style="color:${grave?'var(--rd)':'var(--ink)'}">${grave?'El sistema tiene un problema':'El sistema pide atención'}</b>
+      ${S.problemas.map(x=>`<div style="margin-top:6px"><b style="color:var(--ink)">${esc(x.que)}</b><br><span style="color:var(--muted)">${esc(x.que_hacer)}</span></div>`).join('')}
+    </div>`;
+  })();
   return `<div class="card">
     <div class="chips-row">
       ${chips.map(([k,l])=>`<button class="chip ${(state.quickFilter||'')===k?'active':''}" data-chip="${k}">${l}</button>`).join('')}${chipElim}
     </div>
-    ${avisoVerif}
+    ${avisoSalud}${avisoVerif}
     <div class="tbl-tools">
       <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor o NIF…" value="${esc(state.search)}"></div>
       <select class="sel" id="f-prov"><option value="">Todos los proveedores</option>${provs.map(p=>`<option value="${esc(p.k)}" ${p.k===state.fProv?'selected':''}>${esc(p.n)}</option>`).join('')}</select>
