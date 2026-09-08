@@ -655,11 +655,19 @@ async function loadAll(){
   // log en el ordenador donde corre el proceso.
   try{
     const docs=await api(`documentos_recibidos?select=id,nombre_archivo,email_asunto,fecha_recepcion,tipo_documento_ia,resumen_ia,hash_archivo&order=fecha_recepcion.desc&limit=2000`);
-    const propios=new Set(state.facturas.map(f=>f.documento_recibido_id));
-    const puestos=new Set();
-    state.facturas.forEach(f=>((f.json_extraccion_ia||{})._adjuntos||[]).forEach(a=>a&&a.documento_id&&puestos.add(a.documento_id)));
-    state.sueltos=docs.filter(d=>!propios.has(d.id)&&!puestos.has(d.id));
-  }catch(e){console.error(e);state.sueltos=[];}
+    // Cero filas no significa "no hay documentos": si falta el permiso de lectura,
+    // la base no da error, devuelve una lista vacía. El panel decía "0 sin asignar"
+    // habiendo 25. Se distingue con lo que ya sabemos: si hay facturas, tiene que
+    // haber al menos un documento detrás de cada una.
+    if(!docs.length&&state.facturas.length){
+      state.sueltos=null;                       // null = no se ha podido saber
+    }else{
+      const propios=new Set(state.facturas.map(f=>f.documento_recibido_id));
+      const puestos=new Set();
+      state.facturas.forEach(f=>((f.json_extraccion_ia||{})._adjuntos||[]).forEach(a=>a&&a.documento_id&&puestos.add(a.documento_id)));
+      state.sueltos=docs.filter(d=>!propios.has(d.id)&&!puestos.has(d.id));
+    }
+  }catch(e){console.error(e);state.sueltos=null;}
   // Peticiones lanzadas desde aquí, para poder enseñar en qué han quedado.
   try{
     state.tareas=await api(`auditoria_workflow?select=id,evento,nivel,detalle,creado_en&evento=like.TAREA:*&order=creado_en.desc&limit=8`);
@@ -762,7 +770,7 @@ function updateNav(){
   // el contador refleja FACTURAS afectadas, no incidencias sueltas (coherente con la vista agrupada)
   $('#nav-inc').textContent=new Set(state.incidencias.filter(i=>i.estado==='ABIERTA').map(i=>i.factura_id)).size;
   const provs=new Set(state.facturas.map(claveProv));$('#nav-prov').textContent=provs.size;
-  $('#nav-sueltos').textContent=(state.sueltos||[]).length;
+  $('#nav-sueltos').textContent=state.sueltos===null?'?':state.sueltos.length;
 }
 
 /* ---------- router ---------- */
@@ -789,6 +797,15 @@ function render(){
 // simplemente no está. Antes eso solo se veía leyendo el log del ordenador donde
 // corre el proceso, así que se ve aquí, con el botón para reintentar al lado.
 function viewSueltos(){
+  if(state.sueltos===null){
+    return `<div class="card"><div style="padding:6px 2px">
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">No se ha podido consultar</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.6">
+        La base no deja al panel leer los documentos recibidos, así que no se puede decir
+        cuántos están sin asignar. No es que no haya ninguno: es que no se sabe.<br><br>
+        Se arregla ejecutando una vez <b>sql/permisos_panel.sql</b> en Supabase.
+      </div></div></div>`;
+  }
   const ds=state.sueltos||[];
   const t=state.tareas||[];
   const enCurso=t.find(x=>((x.detalle||{}).estado)==='PENDIENTE'||((x.detalle||{}).estado)==='EN_CURSO');
