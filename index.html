@@ -832,7 +832,7 @@ function viewSueltos(){
     const tipo=(d.tipo_documento_ia||'').toString();
     const esFactura=/FACTURA/i.test(tipo)&&!/ALBAR|PEDIDO/i.test(tipo);
     return `<tr>
-      <td><a href="${SB_URL}/storage/v1/object/public/facturas/${esc(d.hash_archivo)}.pdf" target="_blank" rel="noopener">${esc(d.nombre_archivo||'(sin nombre)')}</a></td>
+      <td><button class="doc-link" data-pdf="${SB_URL}/storage/v1/object/facturas/${esc(d.hash_archivo)}.pdf" style="background:none;border:none;padding:0;font:inherit;color:var(--rd);cursor:pointer;text-align:left;text-decoration:underline">${esc(d.nombre_archivo||'(sin nombre)')}</button></td>
       <td>${esFactura?'<span class="bdg" style="background:var(--rd-s);color:var(--rd)">Parece una factura</span> ':''}${esc(tipo||'sin identificar')}</td>
       <td style="font-size:12px;color:var(--muted)">${esc(d.resumen_ia||'—')}</td>
       <td style="white-space:nowrap">${dtL(d.fecha_recepcion)}</td>
@@ -1373,6 +1373,10 @@ async function openDrawer(id){
   document.querySelectorAll('#dr-body [data-del]').forEach(b=>b.onclick=()=>eliminarFactura(b.dataset.del));
   document.querySelectorAll('#dr-body [data-restaurar]').forEach(b=>b.onclick=()=>restaurarFactura(b.dataset.restaurar));
   document.querySelectorAll('#dr-body [data-pdf]').forEach(b=>b.onclick=()=>openPdf(b.dataset.pdf));
+  // Tambien fuera del cajon: la tabla de Sin asignar abre PDF igual, y el
+  // bucket es privado — hay que pedir una URL firmada, no enlazar a /public/,
+  // que devuelve "Bucket not found".
+  document.querySelectorAll('#content [data-pdf]').forEach(b=>b.onclick=()=>openPdf(b.dataset.pdf));
   document.querySelectorAll('#dr-body [data-juntar]').forEach(b=>b.onclick=()=>{
     let urls=[];try{urls=JSON.parse(b.dataset.juntar);}catch(_){}
     openPdfsJuntos(urls);
