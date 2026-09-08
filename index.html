@@ -1514,7 +1514,13 @@ async function pedirTarea(accion,boton){
     await loadAll();
   }catch(e){
     console.error(e);
-    toast('No se ha podido enviar la petición: '+(e.message||e),'err');
+    // Un error de Postgres en la cara no le dice nada a quien revisa facturas.
+    // El caso que de verdad pasa es este: falta el permiso en la base, y se
+    // arregla ejecutando sql/permisos_panel.sql una vez.
+    const falta=/row-level security|42501|403/.test(String(e.message||e));
+    toast(falta
+      ? 'La base no deja al panel pedir tareas todavía. Hay que ejecutar una vez sql/permisos_panel.sql en Supabase.'
+      : 'No se ha podido enviar la petición: '+(e.message||e), 'err');
     if(boton){boton.disabled=false;boton.textContent=antes;}
   }
 }
