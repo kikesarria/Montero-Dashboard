@@ -329,6 +329,7 @@ details.raw pre{background:#0f172a;color:#cbd5e1;padding:14px;border-radius:10px
       <button class="nav-item" data-view="facturas"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>Facturas</span><span class="ct" id="nav-fac">0</span></button>
       <button class="nav-item" data-view="incidencias"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>Incidencias</span><span class="ct" id="nav-inc">0</span></button>
       <button class="nav-item" data-view="proveedores"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/></svg><span>Proveedores</span><span class="ct" id="nav-prov">0</span></button>
+      <button class="nav-item" data-view="sueltos" title="Albaranes, pedidos y facturas que no están asignados a ninguna factura"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Sin asignar</span><span class="ct" id="nav-sueltos">0</span></button>
     </nav>
     <div class="side-foot">
       <div class="user-email" id="user-email-lbl"></div>
@@ -649,6 +650,20 @@ async function loadAll(){
   try{
     state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable`);
   }catch(e){console.error(e);state.proveedoresBD=[];}
+  // Documentos que han llegado y no están puestos con ninguna factura: ni son la
+  // factura ni figuran como su respaldo. Es lo que antes solo se veía leyendo un
+  // log en el ordenador donde corre el proceso.
+  try{
+    const docs=await api(`documentos_recibidos?select=id,nombre_archivo,email_asunto,fecha_recepcion,tipo_documento_ia,resumen_ia,hash_archivo&order=fecha_recepcion.desc&limit=2000`);
+    const propios=new Set(state.facturas.map(f=>f.documento_recibido_id));
+    const puestos=new Set();
+    state.facturas.forEach(f=>((f.json_extraccion_ia||{})._adjuntos||[]).forEach(a=>a&&a.documento_id&&puestos.add(a.documento_id)));
+    state.sueltos=docs.filter(d=>!propios.has(d.id)&&!puestos.has(d.id));
+  }catch(e){console.error(e);state.sueltos=[];}
+  // Peticiones lanzadas desde aquí, para poder enseñar en qué han quedado.
+  try{
+    state.tareas=await api(`auditoria_workflow?select=id,evento,nivel,detalle,creado_en&evento=like.TAREA:*&order=creado_en.desc&limit=8`);
+  }catch(e){state.tareas=[];}
   // Estado del sistema: lo deja scripts/salud.py en cada pasada. Si esto falla,
   // state.salud queda a null y el banner no sale — que es lo correcto: no se
   // puede afirmar que todo va bien cuando ni siquiera se ha podido preguntar.
@@ -747,10 +762,11 @@ function updateNav(){
   // el contador refleja FACTURAS afectadas, no incidencias sueltas (coherente con la vista agrupada)
   $('#nav-inc').textContent=new Set(state.incidencias.filter(i=>i.estado==='ABIERTA').map(i=>i.factura_id)).size;
   const provs=new Set(state.facturas.map(claveProv));$('#nav-prov').textContent=provs.size;
+  $('#nav-sueltos').textContent=(state.sueltos||[]).length;
 }
 
 /* ---------- router ---------- */
-const TITLES={resumen:['Resumen','Vista general de la facturación'],facturas:['Facturas','Listado completo de facturas procesadas'],incidencias:['Incidencias','Validaciones, avisos y bloqueos detectados'],proveedores:['Proveedores','Actividad y ranking de proveedores']};
+const TITLES={resumen:['Resumen','Vista general de la facturación'],facturas:['Facturas','Listado completo de facturas procesadas'],incidencias:['Incidencias','Validaciones, avisos y bloqueos detectados'],proveedores:['Proveedores','Actividad y ranking de proveedores'],sueltos:['Sin asignar','Documentos que han llegado y no están puestos con ninguna factura']};
 function setView(v){
   state.view=v;state.provSel=null;state.quickFilter='';
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
@@ -763,8 +779,51 @@ function render(){
   else if(state.view==='facturas')c.innerHTML=viewFacturas();
   else if(state.view==='incidencias')c.innerHTML=viewIncidencias();
   else if(state.view==='proveedores')c.innerHTML=viewProveedores();
+  else if(state.view==='sueltos')c.innerHTML=viewSueltos();
   bindContent();
   if(state.view==='resumen')drawCharts();
+}
+
+/* ---------- SIN ASIGNAR ---------- */
+// Un albarán que llega y no se engancha a su factura no da error en ninguna parte:
+// simplemente no está. Antes eso solo se veía leyendo el log del ordenador donde
+// corre el proceso, así que se ve aquí, con el botón para reintentar al lado.
+function viewSueltos(){
+  const ds=state.sueltos||[];
+  const t=state.tareas||[];
+  const enCurso=t.find(x=>((x.detalle||{}).estado)==='PENDIENTE'||((x.detalle||{}).estado)==='EN_CURSO');
+  const ultima=t.find(x=>['HECHO','ERROR'].includes((x.detalle||{}).estado));
+  const cab=`<div class="card" style="margin-bottom:14px">
+    <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1 1 20rem;min-width:16rem">
+        <div style="font-size:15px;font-weight:600;margin-bottom:4px">${ds.length} documento${ds.length===1?'':'s'} sin asignar</div>
+        <div style="font-size:12.5px;color:var(--muted);line-height:1.55">
+          Han llegado por correo y no están puestos con ninguna factura. Puede ser que su factura
+          aún no haya llegado, que sea de un mes anterior, o que el emparejado no los haya reconocido.
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="act-btn ok" data-tarea="emparejar" ${enCurso?'disabled':''}>Reintentar emparejado</button>
+        <button class="act-btn" data-tarea="salud" ${enCurso?'disabled':''}>Comprobar el sistema</button>
+      </div>
+    </div>
+    ${enCurso?`<div class="rev-note" style="margin-top:10px">Petición enviada · se ejecuta en la próxima pasada (como mucho 10 minutos). Recarga para ver el resultado.</div>`:''}
+    ${!enCurso&&ultima?`<div class="rev-note" style="margin-top:10px">Última ejecución (${esc(ultima.evento.replace('TAREA: ',''))}) · ${dtL(ultima.creado_en)} · <b>${(ultima.detalle||{}).estado==='HECHO'?'correcta':'con error'}</b><br><span style="font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted);white-space:pre-wrap">${esc(String((ultima.detalle||{}).resultado||'').split('\n').slice(-3).join('\n'))}</span></div>`:''}
+  </div>`;
+  if(!ds.length) return cab+`<div class="card"><div class="empty">No hay nada suelto: todo lo que ha llegado está puesto con su factura.</div></div>`;
+  const filas=ds.map(d=>{
+    const tipo=(d.tipo_documento_ia||'').toString();
+    const esFactura=/FACTURA/i.test(tipo)&&!/ALBAR|PEDIDO/i.test(tipo);
+    return `<tr>
+      <td><a href="${SB_URL}/storage/v1/object/public/facturas/${esc(d.hash_archivo)}.pdf" target="_blank" rel="noopener">${esc(d.nombre_archivo||'(sin nombre)')}</a></td>
+      <td>${esFactura?'<span class="bdg" style="background:var(--rd-s);color:var(--rd)">Parece una factura</span> ':''}${esc(tipo||'sin identificar')}</td>
+      <td style="font-size:12px;color:var(--muted)">${esc(d.resumen_ia||'—')}</td>
+      <td style="white-space:nowrap">${dtL(d.fecha_recepcion)}</td>
+      <td style="font-size:12px;color:var(--muted)">${esc((d.email_asunto||'').slice(0,42))}</td>
+    </tr>`;}).join('');
+  return cab+`<div class="card"><div class="tbl-wrap"><table>
+    <thead><tr><th>Archivo</th><th>Qué es</th><th>Qué trae dentro</th><th>Llegó</th><th>Correo</th></tr></thead>
+    <tbody>${filas}</tbody></table></div></div>`;
 }
 
 /* ---------- metrics ---------- */
@@ -1436,7 +1495,32 @@ function drawCharts(){
 }
 
 /* ---------- events ---------- */
+// Pide al ordenador que ejecuta el proceso que haga algo. No se manda un comando:
+// se manda el NOMBRE de una acción, y allí solo se ejecutan las que están en una
+// lista cerrada. Tarda lo que tarde en llegar la siguiente pasada: 10 minutos como
+// mucho. Se hace así para no tener que abrir ningún puerto en ese ordenador.
+async function pedirTarea(accion,boton){
+  const antes=boton?boton.textContent:'';
+  if(boton){boton.disabled=true;boton.textContent='Enviando…';}
+  try{
+    const tok=getToken()||SB_ANON;
+    const r=await fetch(`${SB_URL}/rest/v1/auditoria_workflow`,{method:'POST',
+      headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json'},
+      body:JSON.stringify({evento:'TAREA: '+accion, nivel:'INFO', n8n_execution_id:'panel',
+        detalle:{accion,estado:'PENDIENTE',pedido_por:(_session?.user?.email||'panel'),
+                 cuando:new Date().toISOString()}})});
+    if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
+    toast('Enviado. Se ejecutará en la próxima pasada, como mucho en 10 minutos.');
+    await loadAll();
+  }catch(e){
+    console.error(e);
+    toast('No se ha podido enviar la petición: '+(e.message||e),'err');
+    if(boton){boton.disabled=false;boton.textContent=antes;}
+  }
+}
+
 function bindContent(){
+  document.querySelectorAll('[data-tarea]').forEach(b=>b.onclick=()=>pedirTarea(b.dataset.tarea,b));
   document.querySelectorAll('tbody tr[data-id]').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.id));
   document.querySelectorAll('.inc[data-id]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.id));
   document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(['revision','aprobadas','validadas','contabilizadas'].includes(g)){setView('facturas');state.quickFilter=g;render();}else setView(g);});
