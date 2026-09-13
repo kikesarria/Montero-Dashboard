@@ -648,7 +648,7 @@ async function loadAll(){
     if(e instanceof SesionCaducada){clearSession();showLogin();return;}
     console.error(e);setConn(false,e.message);state.facturas=[];}
   try{
-    state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable`);
+    state.proveedoresBD=await api(`proveedores?select=nombre,codigo_proveedor,cuenta_contable,tipo_hoja,actividad`);
   }catch(e){console.error(e);state.proveedoresBD=[];}
   // Documentos que han llegado y no están puestos con ninguna factura: ni son la
   // factura ni figuran como su respaldo. Es lo que antes solo se veía leyendo un
@@ -693,6 +693,37 @@ function cuentaContablePorNombre(nombre){
 function codigoProveedorPorNombre(nombre){
   const p=proveedorBD(nombre);
   return p?p.codigo_proveedor||null:null;
+}
+// La homologación que pide Rubén para dar el visto bueno. Ya está en el maestro
+// ("HOMOL. NAC", "HOM LOCALES"), no hay que deducirla de ningún sitio.
+function homologacionPorNombre(nombre){
+  const p=proveedorBD(nombre);
+  return p?(p.tipo_hoja||null):null;
+}
+// El albarán con su fecha detrás, que es como lo quieren para cuadrarlo:
+// "10281548 · 12/06/2026". La fecha sale de lo que la IA leyó de cada albarán.
+function albaranesConFecha(ia){
+  const nums=Array.isArray(ia._albaranes)?ia._albaranes:[];
+  const det=Array.isArray(ia.albaranes)?ia.albaranes:[];
+  const fechaDe=n=>{
+    const k=String(n||'').replace(/\D/g,'').replace(/^0+/,'');
+    const m=det.find(a=>a&&String(a.numero||'').replace(/\D/g,'').replace(/^0+/,'')===k);
+    return m&&m.fecha?dt(m.fecha):null;
+  };
+  return nums.map(n=>{const f=fechaDe(n);return f?`${n} · ${f}`:String(n);});
+}
+// El artículo que quiere Rubén es el de MONTERO, el del pedido ("MANTENVARIOS"),
+// no la referencia del proveedor. Solo existe donde el pedido está: en las demás
+// se pone el del proveedor y se marca, para que no parezca que es el nuestro.
+function articuloDe(f){
+  const ia=f.json_extraccion_ia||{};
+  let ped=ia.pedido;
+  if(Array.isArray(ped)) ped=ped.length===1?ped[0]:null;
+  const lp=(ped&&Array.isArray(ped.lineas))?ped.lineas:[];
+  const nuestras=[...new Set(lp.map(l=>l&&(l.referencia||l.descripcion)).filter(Boolean))];
+  if(nuestras.length) return nuestras.join(' | ');
+  const suyas=[...new Set(lineasDe(f).map(l=>l.referencia||l.descripcion).filter(Boolean))];
+  return suyas.length?'(del proveedor) '+suyas.join(' | '):'';
 }
 // El maestro guarda nombres comerciales ("VEMASA") y la factura trae la razón
 // social ("VEMASA, S.L."), así que se comparan sin forma jurídica ni puntuación.
@@ -1614,18 +1645,19 @@ function exportExcel(){
   const base=state.view==='facturas'?filtradas():state.facturas;
   const ff=base.filter(f=>!f.eliminada);
   if(!ff.length){toast(base.length?'Las facturas que ves están eliminadas: no se exportan':'No hay facturas para exportar','err');return;}
-  const head=['Cod. Proveedor','Proveedor','NIF','Cuenta Contable','Nº Factura','Fecha Factura','Nº Pedido',
+  const head=['Cod. Proveedor','Proveedor','NIF','Homologación','Cuenta Contable','Nº Factura','Fecha Factura','Nº Pedido',
     'Ámbito IVA','Delegación','Base Imponible IVA','Tipo IVA','Cuota IVA','Total Factura','Estado'];
   for(let i=1;i<=20;i++) head.push('Albarán '+i);
   const rows=ff.map(f=>{
     const ia=f.json_extraccion_ia||{};
     const prov=ia.proveedor||{};
-    const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
+    const albs=albaranesConFecha(ia);
     let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
     if(!d.length) d=[{tipo:f.porcentaje_iva||0, base:f.base_imponible, cuota:f.importe_iva}];
     const iva=d[0]||{};
     const row=[
-      prov.codigo_si_aparece||codigoProveedorPorNombre(nombreProv(f))||'', nombreProv(f), nifProv(f)||'', cuentaContablePorNombre(nombreProv(f))||'',
+      prov.codigo_si_aparece||codigoProveedorPorNombre(nombreProv(f))||'', nombreProv(f), nifProv(f)||'',
+      homologacionPorNombre(nombreProv(f))||'', cuentaContablePorNombre(nombreProv(f))||'',
       f.numero_factura||'', dt(f.fecha_factura||f.fecha_recepcion),
       (ia._pedido&&ia._pedido.numero)||f.numero_pedido_asociado||'',
       ia._ambito_iva||'NACIONAL', ia._delegacion||f.delegacion_detectada||'',
@@ -1636,8 +1668,8 @@ function exportExcel(){
     return row;
   });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
-  ws['!cols']=[{wch:14},{wch:20},{wch:12},{wch:14},{wch:13},{wch:14},{wch:12},
-              {wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:13},{wch:12},...Array(20).fill({wch:12})];
+  ws['!cols']=[{wch:14},{wch:20},{wch:12},{wch:13},{wch:14},{wch:13},{wch:14},{wch:12},
+              {wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:13},{wch:12},...Array(20).fill({wch:22})];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Facturas');
   XLSX.writeFile(wb,`AS400_facturas_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -1667,7 +1699,7 @@ async function exportAS400(){
       :`Se exportarán ${ff.length} factura${ff.length!==1?'s':''} al AS400 y pasarán a CONTABILIZADAS.${excluidas?`\nSe excluyen ${excluidas} (duplicadas, rechazadas o en revisión).`:''}\n\nPodrás volver a descargar este Excel cuando quieras desde el filtro "Contabilizadas".\n\n¿Continuar?`))return;
   if(btn)btn.disabled=true;
   try{
-  const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Cuenta Contable','Artículo',
+  const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Homologación','Cuenta Contable','Artículo',
     'Nº Factura','Nº Pedido Montero','Ámbito IVA','Delegación',
     'Base Imponible','Tipo IVA','Cuota IVA','Portes','Total Factura'];
   for(let i=1;i<=10;i++) head.push('Albarán '+i);
@@ -1675,7 +1707,7 @@ async function exportAS400(){
   ff.forEach(f=>{
     const ia=f.json_extraccion_ia||{};
     const prov=ia.proveedor||{};
-    const albs=Array.isArray(ia._albaranes)?ia._albaranes:[];
+    const albs=albaranesConFecha(ia);
     const imp=ia?.factura?.importes||ia?.datos_extraidos?.factura?.importes||{};
     // Los portes casi nunca vienen como importe aparte: el proveedor los factura como
     // una línea más ("PORTES", "TRANSPORTE", "Envío"). Si no está el importe suelto,
@@ -1685,15 +1717,16 @@ async function exportAS400(){
       const lp=lineasDe(f).filter(l=>/PORTE|TRANSPORT|ENV[IÍ]O/i.test(`${l.descripcion||''} ${l.referencia||''}`));
       portes=lp.length?Math.round(lp.reduce((s,l)=>s+(+l.importe_linea||0),0)*100)/100:'';
     }
-    // Artículo: referencia/descripción de las líneas de la factura (el código propio de
-    // Montero tipo "MANTENVARIOS" no viene en la factura del proveedor, sale del pedido)
-    const articulo=[...new Set(lineasDe(f).map(l=>l.referencia||l.descripcion).filter(Boolean))].join(' | ');
+    // El artículo de MONTERO, que es el que enlaza con la cuenta contable. Sale del
+    // PEDIDO, no de la factura: el proveedor imprime su propia referencia. Donde no
+    // hay pedido se pone la del proveedor marcada como tal, para no confundirlas.
+    const articulo=articuloDe(f);
     let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
     if(!d.length) d=[{tipo:f.porcentaje_iva||0,base:f.base_imponible,cuota:f.importe_iva}];
     const base=[
       dt(f.fecha_factura||f.fecha_recepcion),
       prov.codigo_si_aparece||codigoProveedorPorNombre(nombreProv(f))||'',nombreProv(f),nifProv(f)||'',
-      cuentaContablePorNombre(nombreProv(f))||'',articulo,
+      homologacionPorNombre(nombreProv(f))||'',cuentaContablePorNombre(nombreProv(f))||'',articulo,
       f.numero_factura||'',f.numero_pedido_montero||'',
       ia._ambito_iva||'NACIONAL',ia._delegacion||f.delegacion_detectada||''
     ];
