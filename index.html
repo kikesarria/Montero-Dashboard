@@ -679,6 +679,13 @@ async function loadAll(){
     const r=await api(`configuracion?select=valor,actualizado_en&clave=eq.salud_sistema`);
     state.salud=r&&r[0]?JSON.parse(r[0].valor):null;
   }catch(e){console.error(e);state.salud=null;}
+  // Proveedores que cobran por giro: su factura ya está pagada cuando llega, así
+  // que solo hay que contabilizarla. Lo que importa es que no acabe en una remesa
+  // de pago por error, así que se marca bien visible.
+  try{
+    const r=await api(`configuracion?select=valor&clave=eq.proveedores_giro`);
+    state.giro=r&&r[0]?(JSON.parse(r[0].valor).nombres||[]).map(normProv):[];
+  }catch(e){state.giro=[];}
   recalcularGruposProv();          // antes de pintar nada: de ahí sale quién es quién
   state.incidencias=deriveIncidencias(state.facturas);
   updateNav();render();
@@ -696,6 +703,12 @@ function codigoProveedorPorNombre(nombre){
 }
 // La homologación que pide Rubén para dar el visto bueno. Ya está en el maestro
 // ("HOMOL. NAC", "HOM LOCALES"), no hay que deducirla de ningún sitio.
+// Si a este proveedor se le paga por giro. Manda la lista que pone Montero, no lo
+// que diga la factura: el mismo proveedor escribe su forma de pago de mil maneras.
+function esDeGiro(f){
+  const k=normProv(nombreProv(f));
+  return !!(k&&(state.giro||[]).some(x=>x&&(x===k||k.includes(x)||x.includes(k))));
+}
 function homologacionPorNombre(nombre){
   const p=proveedorBD(nombre);
   return p?(p.tipo_hoja||null):null;
@@ -918,7 +931,7 @@ function colaTrabajo(ff){
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td class="r cell-strong">${eur(f.total_factura)}</td>
-      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}</td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}${esDeGiro(f)?'<span class="bdg" style="background:var(--violet-s);color:var(--violet);margin-left:5px" title="Se cobra por giro: ya está pagada. Solo hay que contabilizarla, NO pagarla otra vez">GIRO · ya pagada</span>':''}</td>
       <td style="max-width:300px;color:var(--muted);font-size:12.5px"><div class="trunc" style="max-width:300px">${esc(motivoDe(f.id))}</div></td>
     </tr>`).join('');
   return`<div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th>Nº Factura</th><th class="r">Total</th><th>Estado</th><th>Motivo</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -1047,7 +1060,7 @@ function tablaFacturas(ff,full){
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="r cell-strong">${eur(f.total_factura)} ${warn?`<span title="Diferencia ${eur(dif)}" style="color:var(--rd)">${svg(ICN.alert).replace('viewBox','width="13" height="13" style="vertical-align:-2px" viewBox')}</span>`:''}</td>
-      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}</td>
+      <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}${esDeGiro(f)?'<span class="bdg" style="background:var(--violet-s);color:var(--violet);margin-left:5px" title="Se cobra por giro: ya está pagada. Solo hay que contabilizarla, NO pagarla otra vez">GIRO · ya pagada</span>':''}</td>
     </tr>`;
   }).join('');
   return `<div class="tbl-wrap"><table><thead><tr>
@@ -1179,6 +1192,13 @@ async function openDrawer(id){
   const rev=j?._revision;
 
   $('#dr-body').innerHTML=`
+    ${esDeGiro(f)?`<div class="dr-sec" style="border-left:4px solid var(--violet);background:var(--violet-s)">
+      <div class="dr-sec-t" style="color:var(--violet)">Esta factura ya está pagada</div>
+      <div style="font-size:13px;color:var(--ink-2);line-height:1.55">
+        A ${esc(nombreProv(f))} se le paga por giro, así que el banco ya la ha cobrado.
+        <b>Solo hay que contabilizarla. No entra en ninguna remesa de pago.</b>
+        ${f.forma_pago_factura?`<br><span style="color:var(--muted);font-size:12.5px">La factura dice: «${esc(f.forma_pago_factura)}»</span>`:''}
+      </div></div>`:''}
     ${avisoElim}
     ${!f.eliminada?`<div class="dr-actions">
       ${esPend?`<button class="act-btn ok" data-act="VALIDADA" data-id="${f.id}">${svg(ICN.check)}Validar</button>
