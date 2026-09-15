@@ -662,9 +662,16 @@ async function loadAll(){
     if(!docs.length&&state.facturas.length){
       state.sueltos=null;                       // null = no se ha podido saber
     }else{
-      const propios=new Set(state.facturas.map(f=>f.documento_recibido_id));
+      // Cuentan también las facturas RETIRADAS del listado: sus albaranes no están
+      // sin asignar, están asignados a algo que se sacó. Al quitar junio —117
+      // facturas ya contabilizadas a mano— aparecían 189 documentos como sueltos
+      // de golpe, y eso parece una avería cuando no lo es.
+      let retiradas=[];
+      try{ retiradas=await api(`facturas_procesadas?select=documento_recibido_id,json_extraccion_ia&eliminada=is.true&limit=2000`); }catch(e){}
+      const todas=[...state.facturas,...retiradas];
+      const propios=new Set(todas.map(f=>f.documento_recibido_id));
       const puestos=new Set();
-      state.facturas.forEach(f=>((f.json_extraccion_ia||{})._adjuntos||[]).forEach(a=>a&&a.documento_id&&puestos.add(a.documento_id)));
+      todas.forEach(f=>((f.json_extraccion_ia||{})._adjuntos||[]).forEach(a=>a&&a.documento_id&&puestos.add(a.documento_id)));
       state.sueltos=docs.filter(d=>!propios.has(d.id)&&!puestos.has(d.id));
     }
   }catch(e){console.error(e);state.sueltos=null;}
