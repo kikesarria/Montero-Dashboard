@@ -445,6 +445,51 @@ let chartMes=null;
 const PEND=['ILEGIBLE','EN_REVISION','DUPLICADO_PENDIENTE','PENDIENTE_CRITERIO'];
 // Facturas que ya no requieren trabajo de revisión: dadas por buenas, exportadas
 // o ya asentadas en el AS400.
+// Qué significa cada aviso y qué hacer con él. Sin esto, quien revisa lee
+// "V31 · Falta el albarán" y lo único que puede hacer es preguntarle a Kike.
+// Con esto lo resuelve solo, y si no puede, el botón de abajo le prepara el
+// mensaje con el caso entero en vez de "hay una factura que no va".
+// Nada de esto llama a ninguna IA: la respuesta a cada código es siempre la
+// misma, así que está escrita una vez y acierta siempre.
+const AYUDA={
+  V01:{q:'El documento no parece una factura.',
+       h:'Ábrelo y mira qué es. Si es un albarán o un pedido, quítalo del listado con «Eliminar»: su documento queda libre y se engancha solo a la factura que respalda.'},
+  V03:{q:'Falta un dato que la factura debería traer.',
+       h:'Mira el PDF: si el dato está y no se ha leído, dale a «Releer». Si de verdad no está, pídeselo al proveedor.'},
+  V12:{q:'El IVA no es el que corresponde a la base.',
+       h:'Compruébalo en el PDF. Si la factura está mal, hay que pedir una rectificativa.'},
+  V13:{q:'Base más IVA no da el total que pone la factura.',
+       h:'Suele ser un concepto que va aparte: portes, suplidos o un descuento. Mira el cuadro de totales del PDF antes de reclamar nada.'},
+  V20:{q:'El descuento no es el acordado con este proveedor.',
+       h:'Compara con las condiciones que tenéis firmadas. Si el acuerdo cambió, decídselo a Kike para actualizarlo.'},
+  V23:{q:'La factura no parece estar a nombre de Montero.',
+       h:'Mira el NIF del cliente en el PDF. Si está mal leído es un aviso sin más; si va a nombre de otra empresa, devuélvesela al proveedor.'},
+  V24:{q:'El NIF del proveedor es el de Montero: está mal leído.',
+       h:'Pasa cuando el NIF que más destaca en la cabecera es el vuestro. Dale a «Releer» y si vuelve igual, avisa a Kike.'},
+  V30:{q:'Falta el pedido.',
+       h:'Si el pedido llegó en otro correo, dale a «Volver a emparejar». Si no ha llegado, pídeselo a quien lo hizo. Y si este proveedor nunca lleva pedido, decídselo a Kike para ponerlo en la lista.'},
+  V31:{q:'Falta el albarán, o falta saber si están todos.',
+       h:'Si dice «faltan 2 de 7», el pedido se sirvió por partes y hay que reclamar los que faltan al proveedor. Si el albarán llegó suelto, prueba «Volver a emparejar».'},
+  V32:{q:'El albarán no está firmado.',
+       h:'El que emite el proveedor dice lo que él mandó, no lo que vosotros recibisteis. Esto se le pide a quien lo recogió en el almacén, no al proveedor.'},
+  V33:{q:'Lo que hay es una nota de entrega, no el albarán conformado.',
+       h:'Vale como respaldo, pero échale un ojo antes de validarla.'},
+  V40:{q:'Las líneas no suman el subtotal que declara la factura.',
+       h:'Míralo en el PDF. Muchas veces es un descuento ya aplicado dentro del precio.'},
+  V41:{q:'El cuadro de totales no encadena.',
+       h:'Lo mismo: suele ser un concepto que el cuadro no explica. Si no lo encuentras, pídele al proveedor que te lo aclare.'},
+  V42:{q:'El IVA no corresponde con su base.',
+       h:'Compruébalo en el PDF antes de pagarla.'},
+  V50:{q:'Los importes los tiene que comprobar una persona.',
+       h:'Este proveedor factura por tarifa y las cuentas no encajan solas. Comprueba los precios contra su tarifa y valídala a mano.'},
+  EX01:{q:'La lectura no es fiable: el documento se ve mal.',
+        h:'Abre el PDF. Si tú lo lees bien, dale a «Releer». Si está borroso, pide una copia mejor.'},
+  IA:{q:'Algo que ha visto la IA al leer el documento.',
+      h:'Léelo y decide: muchas veces es una observación, no un error. Si no lo entiendes, manda el caso a Kike.'},
+  V07:{q:'Esta factura ya estaba registrada.',
+       h:'Comprueba cuál de las dos tiene los papeles y quita la otra con «Eliminar».'},
+};
+const ACCION_DE={V30:'emparejar',V31:'emparejar',V24:'releer',V03:'releer',EX01:'releer'};
 const OK_CERRADAS=['VALIDADA','EXPORTADA','CONTABILIZADA'];
 // Si descargar el Excel de AS400 pasa las facturas a CONTABILIZADA por sí solo.
 // Apagado el 07/08/2026: el Excel se lleva a contabilidad, pero el asiento puede
@@ -1303,7 +1348,7 @@ async function openDrawer(id){
     </div>
     <div class="dr-sec">
       <div class="dr-sec-t">${svg(ICN.alert)}Incidencias (${inc.length})</div>
-      ${inc.length?inc.map(i=>`<div class="inc-mini"><div class="inc-ic ${i.tipo}" style="width:30px;height:30px">${svg(i.tipo==='AVISO'?ICN.info:ICN.alert)}</div><div class="inc-body"><div class="inc-top"><span class="bdg t-${i.tipo}">${esc(i.tipo)}</span><span class="inc-code">${esc(i.codigo_validacion||'')}</span></div><div style="font-size:13px;font-weight:600;margin-top:3px">${esc(i.descripcion||'')}</div>${(i.dato_esperado!=null||i.dato_recibido!=null)?`<div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:14px;flex-wrap:wrap">${i.dato_esperado!=null?`<span>Esperado: <b style="color:var(--ink-2)">${esc(String(i.dato_esperado))}</b></span>`:''}${i.dato_recibido!=null?`<span>Recibido: <b style="color:var(--ink-2)">${esc(String(i.dato_recibido))}</b></span>`:''}</div>`:''}</div></div>`).join(''):'<div style="color:var(--green);font-size:13px;display:flex;align-items:center;gap:7px;padding:4px 0">'+svg('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>','var(--green)').replace('viewBox','width="16" height="16" viewBox')+'Sin incidencias. Validación correcta.</div>'}
+      ${inc.length?inc.map(i=>`<div class="inc-mini"><div class="inc-ic ${i.tipo}" style="width:30px;height:30px">${svg(i.tipo==='AVISO'?ICN.info:ICN.alert)}</div><div class="inc-body"><div class="inc-top"><span class="bdg t-${i.tipo}">${esc(i.tipo)}</span><span class="inc-code">${esc(i.codigo_validacion||'')}</span></div><div style="font-size:13px;font-weight:600;margin-top:3px">${esc(i.descripcion||'')}</div>${(i.dato_esperado!=null||i.dato_recibido!=null)?`<div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:14px;flex-wrap:wrap">${i.dato_esperado!=null?`<span>Esperado: <b style="color:var(--ink-2)">${esc(String(i.dato_esperado))}</b></span>`:''}${i.dato_recibido!=null?`<span>Recibido: <b style="color:var(--ink-2)">${esc(String(i.dato_recibido))}</b></span>`:''}</div>`:''}${ayudaDe(i,f)}</div></div>`).join(''):'<div style="color:var(--green);font-size:13px;display:flex;align-items:center;gap:7px;padding:4px 0">'+svg('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>','var(--green)').replace('viewBox','width="16" height="16" viewBox')+'Sin incidencias. Validación correcta.</div>'}
     </div>
     ${(()=>{
       // Qué respaldo tiene la factura. Solo cuenta el documento en sí: que en la
@@ -1433,6 +1478,13 @@ async function openDrawer(id){
   $('#dr-body').scrollTop=0;
   document.querySelectorAll('#dr-body [data-act]').forEach(b=>b.onclick=()=>resolverFactura(b.dataset.id,b.dataset.act));
   document.querySelectorAll('#dr-body [data-del]').forEach(b=>b.onclick=()=>eliminarFactura(b.dataset.del));
+  // Los botones de la ayuda: el que lanza la acción que arregla el aviso y el que
+  // prepara el mensaje cuando la acción no lo arregla.
+  document.querySelectorAll('#dr-body [data-ayuda-accion]').forEach(b=>b.onclick=()=>pedirTarea(b.dataset.ayudaAccion,b));
+  document.querySelectorAll('#dr-body [data-escalar]').forEach(b=>b.onclick=()=>{
+    const fa=state.facturas.find(x=>x.id===b.dataset.escalar);
+    if(fa)escalar(fa,b.dataset.cod);
+  });
   document.querySelectorAll('#dr-body [data-restaurar]').forEach(b=>b.onclick=()=>restaurarFactura(b.dataset.restaurar));
   document.querySelectorAll('#dr-body [data-pdf]').forEach(b=>b.onclick=()=>openPdf(b.dataset.pdf));
   // Tambien fuera del cajon: la tabla de Sin asignar abre PDF igual, y el
@@ -1537,6 +1589,48 @@ function toast(msg,tipo){
   clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),3000);
 }
 function closeDrawer(){$('#ov').classList.remove('open');$('#drawer').classList.remove('open');}
+// La ayuda de cada aviso, debajo del aviso: qué es, qué hacer y el botón que lo
+// hace. Y si no se arregla, el que prepara el mensaje para Kike con el caso ya
+// montado — número, códigos y lo que se ha intentado— en vez de «no va una».
+function ayudaDe(i,f){
+  const cod=i.codigo_validacion||'';
+  const a=AYUDA[cod]||AYUDA[cod.replace(/[0-9]+$/,'')];
+  if(!a)return '';
+  const accion=ACCION_DE[cod];
+  const btn=accion?`<button class="act-btn" data-ayuda-accion="${accion}" style="margin-top:8px;font-size:12px;padding:5px 10px">${accion==='emparejar'?'Volver a emparejar':'Releer esta factura'}</button>`:'';
+  const esc2=x=>esc(String(x||''));
+  return `<details style="margin-top:8px">
+    <summary style="cursor:pointer;font-size:12.5px;color:var(--blue);list-style:none">¿Qué hago con esto?</summary>
+    <div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;margin-top:6px;padding:9px 11px;background:var(--bg-2);border-radius:7px">
+      <div style="font-weight:600;margin-bottom:3px">${esc2(a.q)}</div>
+      <div>${esc2(a.h)}</div>
+      ${btn}
+      <div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--line-2);color:var(--muted);font-size:12px">
+        ¿No se arregla así?
+        <button class="act-btn" data-escalar="${f.id}" data-cod="${esc2(cod)}" style="margin-left:6px;font-size:12px;padding:4px 9px">Preparar mensaje para Kike</button>
+      </div>
+    </div></details>`;
+}
+
+// Copia al portapapeles el caso entero. Lo que llega por WhatsApp suele ser «hay
+// una factura que da error»; con esto llega el número, el proveedor, el importe,
+// los códigos y lo que ya se ha intentado, que es la diferencia entre mirarlo en
+// dos minutos o en media hora.
+function escalar(f,cod){
+  const inc=state.incidencias.filter(x=>x.factura_id===f.id);
+  const t=[`Factura ${f.numero_factura||'(sin número)'} — ${nombreProv(f)}`,
+    `${eur(f.total_factura)} · ${dt(f.fecha_factura)} · estado ${estadoLbl(f.estado)}`,
+    ``,
+    `Avisos: ${inc.map(x=>x.codigo_validacion).filter(Boolean).join(', ')||'ninguno'}`,
+    `El que no sé resolver: ${cod}`,
+    inc.filter(x=>x.codigo_validacion===cod).map(x=>`  "${x.descripcion}"`).join('\n'),
+    ``,
+    `Panel: ${location.origin}${location.pathname}`].join('\n');
+  navigator.clipboard.writeText(t).then(
+    ()=>toast('Mensaje copiado: pégalo en el WhatsApp de Kike'),
+    ()=>toast('No he podido copiarlo','err'));
+}
+
 function openLegend(){
   $('#ov').classList.add('open');$('#drawer').classList.add('open');
   $('#dr-head').innerHTML=`<div><div class="dr-title">Leyenda</div><div class="dr-sub">Qué significa cada estado y aviso</div></div><button class="x" id="dr-close">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}</button>`;
@@ -1730,9 +1824,17 @@ async function exportAS400(){
       :`Se exportarán ${ff.length} factura${ff.length!==1?'s':''} al AS400 y pasarán a CONTABILIZADAS.${excluidas?`\nSe excluyen ${excluidas} (duplicadas, rechazadas o en revisión).`:''}\n\nPodrás volver a descargar este Excel cuando quieras desde el filtro "Contabilizadas".\n\n¿Continuar?`))return;
   if(btn)btn.disabled=true;
   try{
+  // Estado y fecha de descarga van DENTRO del fichero, no solo en el panel. Lo
+  // pidio Paqui el 21/09/2026: el Excel se lleva a contabilidad y alli nadie ve
+  // el panel, asi que el papel tiene que decir por si solo que esas facturas ya
+  // estan contabilizadas y de que descarga salieron.
+  // Forma de pago y vencimiento salen del plazo acordado con cada proveedor: no
+  // es la fecha en que se paga -eso lo sabe el AS400, no nosotros- es la fecha en
+  // que toca pagarla, que es lo que sirve para ordenar una remesa.
   const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Homologación','Cuenta Contable','Artículo',
     'Nº Factura','Nº Pedido Montero','Ámbito IVA','Delegación',
-    'Base Imponible','Tipo IVA','Cuota IVA','Portes','Total Factura'];
+    'Base Imponible','Tipo IVA','Cuota IVA','Portes','Total Factura',
+    'Estado','Descargado el','Forma de pago','Vence el'];
   for(let i=1;i<=10;i++) head.push('Albarán '+i);
   const rows=[];
   ff.forEach(f=>{
@@ -1752,6 +1854,16 @@ async function exportAS400(){
     // PEDIDO, no de la factura: el proveedor imprime su propia referencia. Donde no
     // hay pedido se pone la del proveedor marcada como tal, para no confundirlas.
     const articulo=articuloDe(f);
+    // El plazo puede venir de la propia factura ("60 dias fecha factura") o del
+    // acuerdo que Montero tiene con ese proveedor. Si no hay ninguno, no se
+    // inventa una fecha: se deja en blanco.
+    const plazoTxt=`${f.plazo_pago_factura||''} ${ia._plazo_acordado||''}`;
+    const dias=(plazoTxt.match(/(\d{2,3})/)||[])[1];
+    let vence='';
+    if(dias&&(f.fecha_factura||f.fecha_recepcion)){
+      const d0=new Date(f.fecha_factura||f.fecha_recepcion);
+      if(!isNaN(d0)){ d0.setDate(d0.getDate()+ +dias); vence=dt(d0.toISOString().slice(0,10)); }
+    }
     let d=Array.isArray(ia._desglose_iva)?ia._desglose_iva:[];
     if(!d.length) d=[{tipo:f.porcentaje_iva||0,base:f.base_imponible,cuota:f.importe_iva}];
     const base=[
@@ -1765,14 +1877,18 @@ async function exportAS400(){
       const row=[...base,
         iva.base||'',(Math.round(+iva.tipo)||0)+'%',iva.cuota||'',
         idx===0?portes:'',
-        idx===0?f.total_factura||'':''
+        idx===0?f.total_factura||'':'',
+        idx===0?(rehacer?'CONTABILIZADA':'CONTABILIZADA'):'',
+        idx===0?dt(new Date().toISOString().slice(0,10)):'',
+        idx===0?(f.forma_pago_factura||ia._plazo_acordado||''):'',
+        idx===0?vence:''
       ];
       for(let i=0;i<10;i++) row.push(idx===0?albs[i]||'':'');
       rows.push(row);
     });
   });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
-  ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:30},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:10},{wch:13},...Array(10).fill({wch:12})];
+  ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:30},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:10},{wch:13},{wch:15},{wch:13},{wch:20},{wch:12},...Array(10).fill({wch:12})];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'AS400');
   XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
