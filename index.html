@@ -1031,6 +1031,7 @@ function filtradas(){
   ff.sort((a,b)=>{
     let va,vb;
     if(k==='fecha'){va=new Date(a.fecha_factura||a.fecha_recepcion);vb=new Date(b.fecha_factura||b.fecha_recepcion);}
+    else if(k==='cargada'){va=new Date(a.fecha_recepcion||a.creado_en);vb=new Date(b.fecha_recepcion||b.creado_en);}
     else if(k==='total'){va=+a.total_factura||0;vb=+b.total_factura||0;}
     else if(k==='prov'){va=nombreProv(a);vb=nombreProv(b);}
     else if(k==='conf'){va=+a.confianza_extraccion||0;vb=+b.confianza_extraccion||0;}
@@ -1114,6 +1115,7 @@ function tablaFacturas(ff,full){
     const warn=dif!=null&&Math.abs(dif)>TOL;
     return `<tr data-id="${f.id}">
       <td class="mono">${dt(f.fecha_factura||f.fecha_recepcion)}</td>
+      <td class="mono" style="color:var(--muted)">${dt(f.fecha_recepcion||f.creado_en)}</td>
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="r cell-strong">${eur(f.total_factura)} ${warn?`<span title="Diferencia ${eur(dif)}" style="color:var(--rd)">${svg(ICN.alert).replace('viewBox','width="13" height="13" style="vertical-align:-2px" viewBox')}</span>`:''}</td>
@@ -1121,7 +1123,8 @@ function tablaFacturas(ff,full){
     </tr>`;
   }).join('');
   return `<div class="tbl-wrap"><table><thead><tr>
-    ${full?th('fecha','Fecha'):'<th>Fecha</th>'}
+    ${full?th('fecha','Fecha fra.'):'<th>Fecha fra.</th>'}
+    ${full?th('cargada','Cargada'):'<th>Cargada</th>'}
     <th>Nº Factura</th>
     ${full?th('prov','Proveedor'):'<th>Proveedor</th>'}
     ${full?th('total','Total',1):'<th class="r">Total</th>'}
