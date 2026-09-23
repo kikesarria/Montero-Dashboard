@@ -1268,6 +1268,7 @@ async function openDrawer(id){
     ${!f.eliminada?`<div class="dr-actions">
       ${esPend?`<button class="act-btn ok" data-act="VALIDADA" data-id="${f.id}">${svg(ICN.check)}Validar</button>
       <button class="act-btn no" data-act="RECHAZADA" data-id="${f.id}">${svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>')}Rechazar</button>`:''}
+      ${(f.estado==='VALIDADA'||f.estado==='RECHAZADA')?`<button class="act-btn" data-act="EN_REVISION" data-id="${f.id}" title="Quitarle el estado y volver a dejarla pendiente">${svg('<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>')}Devolver a revisión</button>`:''}
       ${f.estado==='VALIDADA'?`<button class="act-btn cont" data-act="CONTABILIZADA" data-id="${f.id}" title="El asiento ya está hecho en el AS400">${svg('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h8M8 14h4"/>')}Marcar contabilizada</button>`:''}
       ${f.estado==='CONTABILIZADA'?`<button class="act-btn del" data-act="VALIDADA" data-id="${f.id}" title="Deshacer: volver a dejarla pendiente de contabilizar">${svg('<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>')}Deshacer contabilizada</button>`:''}
       <button class="act-btn del" data-del="${f.id}" title="Quitar del listado y del Excel de contabilidad">${svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>')}Eliminar</button>
@@ -1538,7 +1539,8 @@ async function resolverFactura(id,nuevoEstado){
   // borrar el registro, no solo cambiar el estado: si se queda, el recálculo la
   // devuelve a contabilizada en la siguiente pasada.
   const esDeshacer=f.estado==='CONTABILIZADA'&&nuevoEstado==='VALIDADA';
-  const ACC={VALIDADA:'validar',RECHAZADA:'rechazar',CONTABILIZADA:'dar por contabilizada en el AS400'};
+  const ACC={VALIDADA:'validar',RECHAZADA:'rechazar',CONTABILIZADA:'dar por contabilizada en el AS400',
+             EN_REVISION:'devolver a revisión'};
   const accionTxt=esDeshacer?'dejar de dar por contabilizada':(ACC[nuevoEstado]||'cambiar');
   if(!confirm(`¿Seguro que quieres ${accionTxt} la factura ${f.numero_factura||''}?`))return;
   const ia=Object.assign({},f.json_extraccion_ia||{});
@@ -1555,7 +1557,8 @@ async function resolverFactura(id,nuevoEstado){
     const r=await fetch(`${SB_URL}/rest/v1/facturas_procesadas?id=eq.${id}`,{method:'PATCH',headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify({estado:nuevoEstado,json_extraccion_ia:ia})});
     const data=await r.json().catch(()=>[]);
     if(!r.ok||!Array.isArray(data)||!data.length)throw new Error('no_persistido');
-    const MSG={VALIDADA:'Factura validada',RECHAZADA:'Factura rechazada',CONTABILIZADA:'Factura marcada como contabilizada'};
+    const MSG={VALIDADA:'Factura validada',RECHAZADA:'Factura rechazada',CONTABILIZADA:'Factura marcada como contabilizada',
+               EN_REVISION:'Devuelta a revisión'};
     closeDrawer();toast(esDeshacer?'Ya no consta como contabilizada':(MSG[nuevoEstado]||'Factura actualizada'));await loadAll();
   }catch(e){console.error(e);toast('No se pudo guardar (falta permiso de escritura)','err');}
 }
