@@ -987,11 +987,13 @@ function colaTrabajo(ff){
   const rows=ff.slice(0,8).map(f=>`<tr data-id="${f.id}">
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
+      <td class="mono">${dt(f.fecha_factura)}</td>
+      <td class="mono" style="color:var(--muted)">${dt(f.fecha_recepcion||f.creado_en)}</td>
       <td class="r cell-strong">${eur(f.total_factura)}</td>
       <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}${esDeGiro(f)?'<span class="bdg" style="background:var(--violet-s);color:var(--violet);margin-left:5px" title="Ya está pagada (giro, tarjeta o contado). Solo hay que contabilizarla, NO pagarla otra vez">YA PAGADA</span>':''}</td>
       <td style="max-width:300px;color:var(--muted);font-size:12.5px"><div class="trunc" style="max-width:300px">${esc(motivoDe(f.id))}</div></td>
     </tr>`).join('');
-  return`<div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th>Nº Factura</th><th class="r">Total</th><th>Estado</th><th>Motivo</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return`<div class="tbl-wrap"><table><thead><tr><th>Proveedor</th><th>Nº Factura</th><th>Fecha fra.</th><th>Cargada</th><th class="r">Total</th><th>Estado</th><th>Motivo</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 /* ---------- FACTURAS ---------- */
