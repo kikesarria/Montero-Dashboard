@@ -440,7 +440,7 @@ async function doLogout(){
 function showLogin(){$('#login-overlay').classList.remove('hidden');$('#l-email').value='';$('#l-pass').value='';$('#l-err').textContent='';}
 function showApp(){$('#login-overlay').classList.add('hidden');const em=_session?.user?.email||'';$('#user-email-lbl').textContent=em;}
 
-const state={view:'resumen',dias:0,desde:'',hasta:'',verEliminadas:false,facturas:[],incidencias:[],proveedoresBD:[],search:'',fProv:'',fEstado:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
+const state={view:'resumen',dias:0,desde:'',hasta:'',verEliminadas:false,facturas:[],incidencias:[],proveedoresBD:[],search:'',fProv:'',fEstado:'',fPago:'',provSel:null,quickFilter:'',sort:{k:'fecha',dir:-1}};
 let chartMes=null;
 const PEND=['ILEGIBLE','EN_REVISION','DUPLICADO_PENDIENTE','PENDIENTE_CRITERIO'];
 // Facturas que ya no requieren trabajo de revisión: dadas por buenas, exportadas
@@ -456,6 +456,8 @@ const AYUDA={
        h:'Ábrelo y mira qué es. Si es un albarán o un pedido, quítalo del listado con «Eliminar»: su documento queda libre y se engancha solo a la factura que respalda.'},
   V03:{q:'Falta un dato que la factura debería traer.',
        h:'Mira el PDF: si el dato está y no se ha leído, dale a «Releer». Si de verdad no está, pídeselo al proveedor.'},
+  V05:{q:'La fecha de la factura es de un día que todavía no ha llegado.',
+       h:'Casi siempre es la fecha leída al revés (el 10/08 como 08/10). Mírala en el PDF; si es un albarán o un pedido y no una factura, quítala con «Eliminar».'},
   V12:{q:'El IVA no es el que corresponde a la base.',
        h:'Compruébalo en el PDF. Si la factura está mal, hay que pedir una rectificativa.'},
   V13:{q:'Base más IVA no da el total que pone la factura.',
@@ -493,7 +495,7 @@ const AYUDA={
   V07:{q:'Esta factura ya estaba registrada.',
        h:'Comprueba cuál de las dos tiene los papeles y quita la otra con «Eliminar».'},
 };
-const ACCION_DE={V30:'emparejar',V31:'emparejar',V24:'releer',V03:'releer',EX01:'releer'};
+const ACCION_DE={V30:'emparejar',V31:'emparejar',V24:'releer',V03:'releer',V05:'releer',EX01:'releer'};
 const OK_CERRADAS=['VALIDADA','EXPORTADA','CONTABILIZADA'];
 // Si descargar el Excel de AS400 pasa las facturas a CONTABILIZADA por sí solo.
 // Apagado el 07/08/2026: el Excel se lleva a contabilidad, pero el asiento puede
@@ -574,7 +576,31 @@ function confHTML(v){if(v==null)return'<span style="color:var(--faint)">—</spa
 
 /* ---------- data ---------- */
 class SesionCaducada extends Error{constructor(){super('sesion_caducada');}}
-async function api(path,_reintento){
+// La base da como mucho 1.000 filas por consulta y no avisa: pides 2.000 y te da
+// 1.000 como si fueran todas. El 24/09/2026 ya había 1.013 documentos. Se piden
+// por páginas hasta que no quede nada, con un orden fijo para que ninguna fila
+// salga dos veces ni se quede fuera.
+const MAX_FILAS=1000;
+async function api(path){
+  const m=path.match(/[?&]limit=(\d+)/);
+  const tope=m?+m[1]:Infinity;
+  if(tope<=MAX_FILAS)return api1(path);
+  const base=path.replace(/([?&])limit=\d+&?/,'$1').replace(/[?&]$/,'');
+  const sep=base.includes('?')?'&':'?';
+  const primera=await api1(`${base}${sep}limit=${MAX_FILAS}`);
+  if(!Array.isArray(primera)||primera.length<MAX_FILAS)return primera;
+  const ord=/order=/.test(base)
+    ? base.replace(/(order=[^&]+)/,o=>/\bid\./.test(o)?o:o+',id.asc')
+    : `${base}${sep}order=id.asc`;
+  let filas=[];
+  while(filas.length<tope){
+    const pag=await api1(`${ord}&limit=${MAX_FILAS}&offset=${filas.length}`);
+    filas=filas.concat(pag||[]);
+    if(!pag||pag.length<MAX_FILAS)break;
+  }
+  return tope===Infinity?filas:filas.slice(0,tope);
+}
+async function api1(path,_reintento){
   const tok=getToken()||SB_ANON;
   const r=await fetch(`${SB_URL}/rest/v1/${path}`,{headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`}});
   // La sesión caduca al cabo de una hora: al volver al día siguiente el token
@@ -582,7 +608,7 @@ async function api(path,_reintento){
   // pide entrar de nuevo. Antes esto se confundía con un fallo de red y el panel
   // aparecía vacío con "Sin conexión", como si el sistema estuviera caído.
   if(r.status===401&&!_reintento){
-    if(await refreshToken())return api(path,true);
+    if(await refreshToken())return api1(path,true);
     throw new SesionCaducada();
   }
   if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
@@ -691,7 +717,7 @@ function periodFilter(){
 async function loadAll(){
   setConn(true);
   try{
-    state.facturas=await api(`facturas_procesadas?select=*&order=fecha_factura.desc.nullslast&limit=1000`+
+    state.facturas=await api(`facturas_procesadas?select=*&order=fecha_factura.desc.nullslast&limit=20000`+
       periodFilter()+(state.verEliminadas?'&eliminada=is.true':'&eliminada=is.false'));
   }catch(e){
     if(e instanceof SesionCaducada){clearSession();showLogin();return;}
@@ -703,7 +729,7 @@ async function loadAll(){
   // factura ni figuran como su respaldo. Es lo que antes solo se veía leyendo un
   // log en el ordenador donde corre el proceso.
   try{
-    const docs=await api(`documentos_recibidos?select=id,nombre_archivo,email_asunto,fecha_recepcion,tipo_documento_ia,resumen_ia,hash_archivo&order=fecha_recepcion.desc&limit=2000`);
+    const docs=await api(`documentos_recibidos?select=id,nombre_archivo,email_asunto,fecha_recepcion,tipo_documento_ia,resumen_ia,hash_archivo&order=fecha_recepcion.desc&limit=20000`);
     // Cero filas no significa "no hay documentos": si falta el permiso de lectura,
     // la base no da error, devuelve una lista vacía. El panel decía "0 sin asignar"
     // habiendo 25. Se distingue con lo que ya sabemos: si hay facturas, tiene que
@@ -715,19 +741,29 @@ async function loadAll(){
       // sin asignar, están asignados a algo que se sacó. Al quitar junio —117
       // facturas ya contabilizadas a mano— aparecían 189 documentos como sueltos
       // de golpe, y eso parece una avería cuando no lo es.
-      let retiradas=[];
-      try{ retiradas=await api(`facturas_procesadas?select=documento_recibido_id,json_extraccion_ia&eliminada=is.true&limit=2000`); }catch(e){}
-      const todas=[...state.facturas,...retiradas];
+      // Contra TODAS las facturas, no contra las del periodo elegido. Antes se
+      // comparaba con las que se estaban viendo: mirando agosto, cualquier albarán
+      // de una factura de julio o de septiembre salía como suelto. Paqui vio 422
+      // "sin asignar" en agosto (23/09/2026) cuando de verdad eran unos 170, y
+      // la mayoría de hoy mismo, esperando a su factura.
+      const todas=await api(`facturas_procesadas?select=id,documento_recibido_id,eliminada,numero_factura,total_factura,fecha_factura,prov:json_extraccion_ia->proveedor->>nombre,adj:json_extraccion_ia->_adjuntos&limit=20000`);
+      state.todasFacturas=todas.filter(f=>!f.eliminada);
       const propios=new Set(todas.map(f=>f.documento_recibido_id));
       const puestos=new Set();
-      todas.forEach(f=>((f.json_extraccion_ia||{})._adjuntos||[]).forEach(a=>a&&a.documento_id&&puestos.add(a.documento_id)));
+      todas.forEach(f=>(Array.isArray(f.adj)?f.adj:[]).forEach(a=>a&&a.documento_id&&puestos.add(a.documento_id)));
       state.sueltos=docs.filter(d=>!propios.has(d.id)&&!puestos.has(d.id));
     }
   }catch(e){console.error(e);state.sueltos=null;}
   // Peticiones lanzadas desde aquí, para poder enseñar en qué han quedado.
   try{
-    state.tareas=await api(`auditoria_workflow?select=id,evento,nivel,detalle,creado_en&evento=like.TAREA:*&order=creado_en.desc&limit=8`);
+    state.tareas=await api(`auditoria_workflow?select=id,evento,nivel,detalle,creado_en&evento=like.TAREA:*&evento=neq.TAREA: asignar&order=creado_en.desc&limit=8`);
   }catch(e){state.tareas=[];}
+  // Lo que se ha puesto a mano en las últimas horas, para enseñar en qué ha
+  // quedado cada documento: pendiente, hecho o con error.
+  try{
+    const d=new Date(Date.now()-864e5).toISOString();
+    state.asignaciones=await api(`auditoria_workflow?select=id,detalle,creado_en&evento=eq.TAREA: asignar&creado_en=gte.${d}&order=creado_en.desc&limit=200`);
+  }catch(e){state.asignaciones=[];}
   // Estado del sistema: lo deja scripts/salud.py en cada pasada. Si esto falla,
   // state.salud queda a null y el banner no sale — que es lo correcto: no se
   // puede afirmar que todo va bien cuando ni siquiera se ha podido preguntar.
@@ -767,6 +803,32 @@ function codigoProveedorPorNombre(nombre){
 function esDeGiro(f){
   const k=normProv(nombreProv(f));
   return !!(k&&(state.giro||[]).some(x=>x&&(x===k||k.includes(x)||x.includes(k))));
+}
+// La forma de pago en pocas palabras y escrita siempre igual. Cada proveedor la
+// pone a su manera —hay 97 formas distintas: "CONFIRMING A 60 DIAS", "Confirming
+// Bancario 60", "CONFIRMING / 60 DIAS F.F."— y así no se puede buscar ni filtrar.
+// Lo pidió Paqui el 24/09/2026. Si la factura no dice los días, se toman los
+// acordados con el proveedor en su Excel.
+const FORMAS_PAGO=['Confirming','Pagaré','Recibo domiciliado','Transferencia','Giro','Cheque / talón','Reposición','Tarjeta','Contado','Otra','Sin indicar'];
+function formaPago(f){
+  const ia=f.json_extraccion_ia||{};
+  const t=`${f.forma_pago_factura||''} ${f.plazo_pago_factura||''}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+  let tipo='Sin indicar';
+  if(esDeGiro(f)||/\bGIRO\b/.test(t))tipo='Giro';
+  else if(/CONFIRMING|\bCF\b|\bC\d{2}\b/.test(t))tipo='Confirming';
+  else if(/PAGARE/.test(t))tipo='Pagaré';
+  else if(/RECIBO|DOMICILI|SEPA|ADEUDO/.test(t))tipo='Recibo domiciliado';
+  else if(/TRANSFER/.test(t))tipo='Transferencia';
+  else if(/CHEQUE|TALON/.test(t))tipo='Cheque / talón';
+  else if(/REPOSICI/.test(t))tipo='Reposición';
+  else if(/TARJETA/.test(t))tipo='Tarjeta';
+  else if(/CONTADO|EFECTIVO|METALICO/.test(t))tipo='Contado';
+  else if(t.trim())tipo='Otra';
+  const m=t.match(/(\d{2,3})\s*(?:D\b|DIAS)/)||t.match(/\b(30|45|60|75|90|120|150|180)\b/);
+  let dias=m?+m[1]:null, acordado=false;
+  if(!dias&&/^\s*\d{2,3}\s*$/.test(String(ia._plazo_acordado||''))){dias=+ia._plazo_acordado;acordado=true;}
+  return {tipo,dias,acordado,texto:tipo+(dias?` · ${dias} días`:''),original:f.forma_pago_factura||''};
 }
 function homologacionPorNombre(nombre){
   const p=proveedorBD(nombre);
@@ -910,6 +972,7 @@ function viewSueltos(){
       </div></div></div>`;
   }
   const ds=state.sueltos||[];
+  const hoy=ds.filter(d=>String(d.fecha_recepcion||'').slice(0,10)===new Date().toISOString().slice(0,10)).length;
   const t=state.tareas||[];
   const enCurso=t.find(x=>((x.detalle||{}).estado)==='PENDIENTE'||((x.detalle||{}).estado)==='EN_CURSO');
   const ultima=t.find(x=>['HECHO','ERROR'].includes((x.detalle||{}).estado));
@@ -918,8 +981,10 @@ function viewSueltos(){
       <div style="flex:1 1 20rem;min-width:16rem">
         <div style="font-size:15px;font-weight:600;margin-bottom:4px">${ds.length} documento${ds.length===1?'':'s'} sin asignar</div>
         <div style="font-size:12.5px;color:var(--muted);line-height:1.55">
-          Han llegado por correo y no están puestos con ninguna factura. Puede ser que su factura
-          aún no haya llegado, que sea de un mes anterior, o que el emparejado no los haya reconocido.
+          Han llegado por correo y no están puestos con ninguna factura, de ningún mes: no depende
+          del periodo elegido arriba. Puede ser que su factura aún no haya llegado, que sea de un mes
+          anterior o que el emparejado no los haya reconocido.${hoy?` <b>${hoy} han llegado hoy</b> y lo normal es que se emparejen solos a lo largo del día.`:''}
+          Si sabes de qué factura es uno, pulsa «Poner con una factura».
         </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -931,19 +996,62 @@ function viewSueltos(){
     ${!enCurso&&ultima?`<div class="rev-note" style="margin-top:10px">Última ejecución (${esc(ultima.evento.replace('TAREA: ',''))}) · ${dtL(ultima.creado_en)} · <b>${(ultima.detalle||{}).estado==='HECHO'?'correcta':'con error'}</b><br><span style="font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted);white-space:pre-wrap">${esc(String((ultima.detalle||{}).resultado||'').split('\n').slice(-3).join('\n'))}</span></div>`:''}
   </div>`;
   if(!ds.length) return cab+`<div class="card"><div class="empty">No hay nada suelto: todo lo que ha llegado está puesto con su factura.</div></div>`;
+  // Para elegir la factura: todas las del listado, no solo las del mes que se
+  // está mirando. El albarán de una factura de julio llega a veces en septiembre.
+  state.opcionesFac=new Map();
+  const opciones=(state.todasFacturas||[]).slice()
+    .sort((a,b)=>String(b.fecha_factura||'').localeCompare(String(a.fecha_factura||'')))
+    .map(f=>{
+      const et=`${f.numero_factura||'(sin número)'} · ${f.prov||'?'} · ${eur(f.total_factura)} · ${dt(f.fecha_factura)}`;
+      state.opcionesFac.set(et,f.id);
+      return `<option value="${esc(et)}"></option>`;
+    }).join('');
+  const asig=new Map();
+  (state.asignaciones||[]).forEach(t=>{const d=t.detalle||{};if(d.documento_id&&!asig.has(d.documento_id))asig.set(d.documento_id,d);});
+  const BTN='flex:none;height:32px;padding:0 12px;font-size:12.5px;white-space:nowrap';
+  const nFac=id=>{const f=(state.todasFacturas||[]).find(x=>x.id===id);return f?(f.numero_factura||'(sin número)'):'?';};
   const filas=ds.map(d=>{
     const tipo=(d.tipo_documento_ia||'').toString();
     const esFactura=/FACTURA/i.test(tipo)&&!/ALBAR|PEDIDO/i.test(tipo);
-    return `<tr>
-      <td><button class="doc-link" data-pdf="${SB_URL}/storage/v1/object/facturas/${esc(d.hash_archivo)}.pdf" style="background:none;border:none;padding:0;font:inherit;color:var(--rd);cursor:pointer;text-align:left;text-decoration:underline">${esc(d.nombre_archivo||'(sin nombre)')}</button></td>
-      <td>${esFactura?'<span class="bdg" style="background:var(--rd-s);color:var(--rd)">Parece una factura</span> ':''}${esc(tipo||'sin identificar')}</td>
-      <td style="font-size:12px;color:var(--muted)">${esc(d.resumen_ia||'—')}</td>
+    const pdf=`${SB_URL}/storage/v1/object/facturas/${esc(d.hash_archivo)}.pdf`;
+    const a=asig.get(d.id);
+    const accion=a&&['PENDIENTE','EN_CURSO'].includes(a.estado)
+      ? `<span style="font-size:12px;color:var(--muted)">Se pone con la <b>${esc(nFac(a.factura_id))}</b> en la próxima pasada</span>`
+      : `${a&&a.estado==='ERROR'?`<div style="font-size:11.5px;color:var(--rd);margin-bottom:4px">No se pudo: ${esc(a.resultado||'error')}</div>`:''}<button class="act-btn cont" data-asignar="${d.id}" style="${BTN}">Poner con una factura</button>`;
+    // Texto largo en varias líneas: en una sola, la tabla medía 2.300 px y el
+    // botón quedaba fuera de la pantalla.
+    const W='white-space:normal;word-break:break-word';
+    return `<tr data-suelto="${d.id}">
+      <td style="${W};min-width:14rem;max-width:22rem"><button class="doc-link" data-pdf="${pdf}" title="Abrir el documento" style="background:none;border:none;padding:0;font:inherit;color:var(--rd);cursor:pointer;text-align:left;text-decoration:underline">${esc(d.nombre_archivo||'(sin nombre)')}</button></td>
+      <td style="${W};max-width:12rem">${accion}</td>
+      <td style="${W};max-width:12rem">${esFactura?'<span class="bdg" style="background:var(--rd-s);color:var(--rd)">Parece una factura</span> ':''}${esc(tipo||'sin identificar')}</td>
+      <td style="${W};font-size:12px;color:var(--muted);min-width:12rem;max-width:22rem">${esc(d.resumen_ia||'—')}</td>
       <td style="white-space:nowrap">${dtL(d.fecha_recepcion)}</td>
-      <td style="font-size:12px;color:var(--muted)">${esc((d.email_asunto||'').slice(0,42))}</td>
-    </tr>`;}).join('');
-  return cab+`<div class="card"><div class="tbl-wrap"><table>
-    <thead><tr><th>Archivo</th><th>Qué es</th><th>Qué trae dentro</th><th>Llegó</th><th>Correo</th></tr></thead>
+      <td style="${W};font-size:12px;color:var(--muted);max-width:14rem">${esc((d.email_asunto||'').slice(0,60))}</td>
+    </tr>
+    <tr data-form="${d.id}" style="display:none"><td colspan="6" style="background:var(--bg)">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:4px 0">
+        <span style="font-size:12.5px">Este documento es</span>
+        <select class="sel" data-tipo><option value="ALBARAN">el albarán</option><option value="PEDIDO">el pedido</option><option value="OTRO">otro papel</option></select>
+        <span style="font-size:12.5px">de la factura</span>
+        <input class="sel" list="dl-facturas" data-fac placeholder="Escribe el número o el proveedor…" style="flex:1 1 18rem;min-width:14rem">
+        <button class="act-btn ok" data-asig-ok="${d.id}" style="${BTN}">Guardar</button>
+        <button class="act-btn del" data-asig-no="${d.id}" style="${BTN}">Cancelar</button>
+      </div></td></tr>`;}).join('');
+  return cab+`<div class="card">
+    <div class="tbl-tools"><div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="s-search" placeholder="Buscar por archivo, proveedor, número…"></div>
+    <span class="card-meta" style="margin-left:auto" id="s-cuenta">${ds.length} documento${ds.length===1?'':'s'}</span></div>
+    <datalist id="dl-facturas">${opciones}</datalist>
+    <div class="tbl-wrap"><table>
+    <thead><tr><th>Archivo</th><th></th><th>Qué es</th><th>Qué trae dentro</th><th>Llegó</th><th>Correo</th></tr></thead>
     <tbody>${filas}</tbody></table></div></div>`;
+}
+async function asignarDocumento(docId,boton){
+  const form=document.querySelector(`tr[data-form="${docId}"]`);
+  if(!form)return;
+  const fac=(state.opcionesFac||new Map()).get(form.querySelector('[data-fac]').value.trim());
+  if(!fac){toast('Elige la factura de la lista: escribe su número o el proveedor y pulsa la que sea','err');return;}
+  await pedirTarea('asignar',boton,{documento_id:docId,factura_id:fac,tipo:form.querySelector('[data-tipo]').value});
 }
 
 /* ---------- metrics ---------- */
@@ -1020,6 +1128,7 @@ function filtradas(){
   // "SECODI" tiene que traer sus 4 facturas, no las 3 de una de las dos formas.
   if(state.fProv)ff=ff.filter(f=>claveProv(f)===state.fProv);
   if(state.fEstado)ff=ff.filter(f=>f.estado===state.fEstado);
+  if(state.fPago)ff=ff.filter(f=>formaPago(f).tipo===state.fPago);
   // Se busca también sin espacios, puntos, barras ni guiones. Cada proveedor
   // escribe su número a su manera y el papel casi nunca coincide con lo guardado:
   // la factura de VALGEPORT pone "29" y aquí está como "29/000020"; la de Racing
@@ -1029,7 +1138,8 @@ function filtradas(){
     const q=state.search.toLowerCase(), qn=q.replace(/[^a-z0-9]/g,'');
     const pega=(v)=>{const s=String(v||'').toLowerCase();
       return s.includes(q)||(!!qn&&s.replace(/[^a-z0-9]/g,'').includes(qn));};
-    ff=ff.filter(f=>pega(f.numero_factura)||pega(nombreProv(f))||pega(nifProv(f)));
+    ff=ff.filter(f=>pega(f.numero_factura)||pega(nombreProv(f))||pega(nifProv(f))||
+      pega(formaPago(f).texto)||pega(f.forma_pago_factura));
   }
   const {k,dir}=state.sort;
   ff.sort((a,b)=>{
@@ -1038,6 +1148,7 @@ function filtradas(){
     else if(k==='cargada'){va=new Date(a.fecha_recepcion||a.creado_en);vb=new Date(b.fecha_recepcion||b.creado_en);}
     else if(k==='total'){va=+a.total_factura||0;vb=+b.total_factura||0;}
     else if(k==='prov'){va=nombreProv(a);vb=nombreProv(b);}
+    else if(k==='pago'){va=formaPago(a).texto;vb=formaPago(b).texto;}
     else if(k==='conf'){va=+a.confianza_extraccion||0;vb=+b.confianza_extraccion||0;}
     else{va=a[k];vb=b[k];}
     return va<vb?-dir:va>vb?dir:0;
@@ -1048,6 +1159,8 @@ function viewFacturas(){
   const provs=[...new Set(state.facturas.map(claveProv))]
     .map(k=>({k,n:nombreCanonico(k)})).sort((a,b)=>a.n.localeCompare(b.n,'es'));
   const estados=[...new Set(state.facturas.map(f=>f.estado).filter(Boolean))].sort();
+  const hay=new Set(state.facturas.map(f=>formaPago(f).tipo));
+  const pagos=FORMAS_PAGO.filter(p=>hay.has(p));
   const ff=filtradas();
   const chips=[['','Todas'],['revision','Requieren revisión'],['duplicados','Duplicados'],['aprobadas','Aprobadas'],['validadas','Validadas'],['contabilizadas','Contabilizadas'],['mes','Este mes']];
   const chipElim=`<button class="chip ${state.verEliminadas?'active':''}" data-elim="1" title="Facturas quitadas del listado">Eliminadas</button>`;
@@ -1091,9 +1204,10 @@ function viewFacturas(){
     </div>
     ${avisoSalud}${avisoVerif}
     <div class="tbl-tools">
-      <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor o NIF…" value="${esc(state.search)}"></div>
+      <div class="search">${svg(ICN.list).replace(ICN.list,'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')}<input id="f-search" placeholder="Buscar nº factura, proveedor, NIF o forma de pago…" value="${esc(state.search)}"></div>
       <select class="sel" id="f-prov"><option value="">Todos los proveedores</option>${provs.map(p=>`<option value="${esc(p.k)}" ${p.k===state.fProv?'selected':''}>${esc(p.n)}</option>`).join('')}</select>
       <select class="sel" id="f-estado"><option value="">Todos los estados</option>${estados.map(e=>`<option value="${esc(e)}" ${e===state.fEstado?'selected':''}>${esc(estadoLbl(e))}</option>`).join('')}</select>
+      <select class="sel" id="f-pago"><option value="">Todas las formas de pago</option>${pagos.map(p=>`<option value="${esc(p)}" ${p===state.fPago?'selected':''}>${esc(p)}</option>`).join('')}</select>
       <span class="card-meta" style="margin-left:auto">${ff.length} resultado${ff.length!==1?'s':''}</span>
     </div>
     ${tablaFacturas(ff,true)}
@@ -1122,6 +1236,7 @@ function tablaFacturas(ff,full){
       <td class="mono" style="color:var(--muted)">${dt(f.fecha_recepcion||f.creado_en)}</td>
       <td class="mono cell-strong">${esc(f.numero_factura||'—')}</td>
       <td><div class="prov-cell"><div class="prov-av">${initials(nombreProv(f))}</div><span class="trunc">${esc(nombreProv(f))}</span></div></td>
+      ${full?(()=>{const p=formaPago(f);return `<td style="font-size:12.5px;white-space:nowrap" title="${esc(p.original?'La factura dice: '+p.original:'La factura no dice cómo se paga')}${p.acordado?' · días según lo acordado con el proveedor':''}">${esc(p.texto)}</td>`;})():''}
       <td class="r cell-strong">${eur(f.total_factura)} ${warn?`<span title="Diferencia ${eur(dif)}" style="color:var(--rd)">${svg(ICN.alert).replace('viewBox','width="13" height="13" style="vertical-align:-2px" viewBox')}</span>`:''}</td>
       <td><span class="bdg s-${f.estado}">${esc(estadoLbl(f.estado))}</span>${(()=>{const m=validadaAMano(f);return m?`<span class="bdg" style="background:var(--amber);color:#fff;margin-left:5px" title="La validó una persona aunque faltaba respaldo">a mano · ${m}</span>`:'';})()}${f.notas_resolucion?`<span title="${esc(f.notas_resolucion)}" style="margin-left:5px;cursor:help;color:var(--amber)">✎</span>`:''}${esDeGiro(f)?'<span class="bdg" style="background:var(--violet-s);color:var(--violet);margin-left:5px" title="Ya está pagada (giro, tarjeta o contado). Solo hay que contabilizarla, NO pagarla otra vez">YA PAGADA</span>':''}</td>
     </tr>`;
@@ -1131,6 +1246,7 @@ function tablaFacturas(ff,full){
     ${full?th('cargada','Cargada'):'<th>Cargada</th>'}
     <th>Nº Factura</th>
     ${full?th('prov','Proveedor'):'<th>Proveedor</th>'}
+    ${full?th('pago','Forma de pago'):''}
     ${full?th('total','Total',1):'<th class="r">Total</th>'}
     <th>Estado</th>
   </tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -1307,7 +1423,15 @@ async function openDrawer(id){
       ${dif!=null?`<div class="imp-row diff ${warn?'warn':''}"><span class="l">Diferencia ${warn?'(supera tolerancia)':'(dentro de tolerancia)'}</span><span class="v">${eur(dif)}</span></div>`:''}
     </div>
     ${(()=>{const dg=Array.isArray(j._desglose_iva)?j._desglose_iva:[];const amb=j._ambito_iva;if(!dg.length&&!amb)return '';return `<div class="dr-sec"><div class="dr-sec-t">${svg(ICN.euro)}Desglose de IVA y régimen</div>${amb?`<div class="kv"><div class="kv-item"><div class="k">Ámbito (a efectos de IVA)</div><div class="v">${esc(amb)}</div></div>${j._delegacion?`<div class="kv-item"><div class="k">Delegación</div><div class="v">${esc(j._delegacion)}</div></div>`:''}</div>`:''}${dg.length?`<table class="mini-tbl" style="margin-top:12px"><thead><tr><th>Tipo IVA</th><th class="r">Base</th><th class="r">Cuota</th></tr></thead><tbody>${dg.map(x=>`<tr><td>${Math.round(+x.tipo)===0?'Exento':Math.round(+x.tipo)+'%'}</td><td class="r">${eur(x.base)}</td><td class="r">${x.cuota!=null?eur(x.cuota):'—'}</td></tr>`).join('')}</tbody></table>`:''}</div>`;})()}
-    ${(f.forma_pago_factura||f.plazo_pago_factura)?`<div class="dr-sec"><div class="dr-sec-t">${svg(ICN.card)}Pago</div><div class="kv"><div class="kv-item"><div class="k">Forma de pago</div><div class="v">${esc(f.forma_pago_factura||'—')}</div></div><div class="kv-item"><div class="k">Plazo</div><div class="v">${esc(f.plazo_pago_factura||'—')}</div></div></div></div>`:''}
+    ${(()=>{
+      const p=formaPago(f), ir=j._irpf;
+      const kv=(k,v)=>`<div class="kv-item"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+      return `<div class="dr-sec"><div class="dr-sec-t">${svg(ICN.card)}Pago</div><div class="kv">
+        ${kv('Forma de pago',esc(p.texto)+(p.original?`<br><span style="color:var(--muted);font-size:12px">La factura dice: «${esc(p.original)}»</span>`:''))}
+        ${kv('Plazo',esc(f.plazo_pago_factura||(p.acordado?`${p.dias} días (acordado)`:'—')))}
+        ${ir?kv('Retención IRPF',`${esc(String(ir.pct??'?'))} % · ${eur(ir.importe)}`):''}
+        ${j._autoriza_pedido?kv('Autoriza el pedido',esc(j._autoriza_pedido)):''}
+      </div></div>`;})()}
     ${(f.direccion_fiscal_detectada||f.delegacion_detectada)?`<div class="dr-sec"><div class="dr-sec-t">${svg(ICN.pin)}Direcciones</div><div class="kv one"><div class="kv-item"><div class="k">Dirección fiscal detectada</div><div class="v" style="font-weight:500;font-size:13px">${esc(f.direccion_fiscal_detectada||'—')}</div></div>${f.delegacion_detectada?`<div class="kv-item"><div class="k">Delegación</div><div class="v">${esc(f.delegacion_detectada)}</div></div>`:''}</div></div>`:''}
     ${(()=>{
       const vd=(j._descuento_validacion||j?.datos_extraidos?._descuento_validacion)||null;
@@ -1688,7 +1812,7 @@ function drawCharts(){
 // se manda el NOMBRE de una acción, y allí solo se ejecutan las que están en una
 // lista cerrada. Tarda lo que tarde en llegar la siguiente pasada: 10 minutos como
 // mucho. Se hace así para no tener que abrir ningún puerto en ese ordenador.
-async function pedirTarea(accion,boton){
+async function pedirTarea(accion,boton,extra){
   const antes=boton?boton.textContent:'';
   if(boton){boton.disabled=true;boton.textContent='Enviando…';}
   try{
@@ -1696,7 +1820,7 @@ async function pedirTarea(accion,boton){
     const r=await fetch(`${SB_URL}/rest/v1/auditoria_workflow`,{method:'POST',
       headers:{apikey:SB_ANON,Authorization:`Bearer ${tok}`,'Content-Type':'application/json'},
       body:JSON.stringify({evento:'TAREA: '+accion, nivel:'INFO', n8n_execution_id:'panel',
-        detalle:{accion,estado:'PENDIENTE',pedido_por:(_session?.user?.email||'panel'),
+        detalle:{...(extra||{}),accion,estado:'PENDIENTE',pedido_por:(_session?.user?.email||'panel'),
                  cuando:new Date().toISOString()}})});
     if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
     toast('Enviado. Se ejecutará en la próxima pasada, como mucho en 10 minutos.');
@@ -1716,6 +1840,28 @@ async function pedirTarea(accion,boton){
 
 function bindContent(){
   document.querySelectorAll('[data-tarea]').forEach(b=>b.onclick=()=>pedirTarea(b.dataset.tarea,b));
+  // Sin asignar: abrir el formulario, guardar, cancelar y buscar sin repintar
+  // (repintar se lleva el foco del cuadro de búsqueda a cada letra).
+  document.querySelectorAll('[data-asignar]').forEach(b=>b.onclick=()=>{
+    const f=document.querySelector(`tr[data-form="${b.dataset.asignar}"]`);
+    if(f){f.style.display='';const i=f.querySelector('[data-fac]');if(i)i.focus();}
+  });
+  document.querySelectorAll('[data-asig-no]').forEach(b=>b.onclick=()=>{
+    const f=document.querySelector(`tr[data-form="${b.dataset.asigNo}"]`);if(f)f.style.display='none';
+  });
+  document.querySelectorAll('[data-asig-ok]').forEach(b=>b.onclick=()=>asignarDocumento(b.dataset.asigOk,b));
+  const ss=$('#s-search');
+  if(ss)ss.oninput=e=>{
+    const q=e.target.value.toLowerCase().trim(), qn=q.replace(/[^a-z0-9]/g,'');
+    let n=0;
+    document.querySelectorAll('tr[data-suelto]').forEach(tr=>{
+      const t=tr.textContent.toLowerCase();
+      const ok=!q||t.includes(q)||(!!qn&&t.replace(/[^a-z0-9]/g,'').includes(qn));
+      tr.style.display=ok?'':'none';if(ok)n++;
+      const f=document.querySelector(`tr[data-form="${tr.dataset.suelto}"]`);if(f&&!ok)f.style.display='none';
+    });
+    const c=$('#s-cuenta');if(c)c.textContent=`${n} documento${n===1?'':'s'}`;
+  };
   document.querySelectorAll('tbody tr[data-id]').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.id));
   document.querySelectorAll('.inc[data-id]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.id));
   document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{const g=el.dataset.go;if(['revision','aprobadas','validadas','contabilizadas'].includes(g)){setView('facturas');state.quickFilter=g;render();}else setView(g);});
@@ -1729,6 +1875,7 @@ function bindContent(){
   const s=$('#f-search');if(s)s.oninput=e=>{state.search=e.target.value;refreshTabla();};
   const fp=$('#f-prov');if(fp)fp.onchange=e=>{state.fProv=e.target.value;refreshTabla();};
   const fe=$('#f-estado');if(fe)fe.onchange=e=>{state.fEstado=e.target.value;refreshTabla();};
+  const fpg=$('#f-pago');if(fpg)fpg.onchange=e=>{state.fPago=e.target.value;refreshTabla();};
 }
 document.querySelectorAll('.nav-item').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 $('#period').querySelectorAll('button').forEach(b=>b.onclick=()=>{
@@ -1846,7 +1993,7 @@ async function exportAS400(){
   const head=['Fecha Factura','Cod. Proveedor','Proveedor','NIF','Homologación','Cuenta Contable','Artículo',
     'Nº Factura','Nº Pedido Montero','Ámbito IVA','Delegación',
     'Base Imponible','Tipo IVA','Cuota IVA','Portes','Total Factura',
-    'Estado','Descargado el','Forma de pago','Vence el'];
+    'Estado','Descargado el','Forma de pago','Vence el','IRPF %','IRPF importe'];
   for(let i=1;i<=10;i++) head.push('Albarán '+i);
   const rows=[];
   ff.forEach(f=>{
@@ -1893,14 +2040,18 @@ async function exportAS400(){
         idx===0?(rehacer?'CONTABILIZADA':'CONTABILIZADA'):'',
         idx===0?dt(new Date().toISOString().slice(0,10)):'',
         idx===0?(f.forma_pago_factura||ia._plazo_acordado||''):'',
-        idx===0?vence:''
+        idx===0?vence:'',
+        // La retención la pidió Paqui el 23/09/2026: el informático necesita el
+        // porcentaje (1, 7, 15 o 19) y el importe retenido.
+        idx===0&&ia._irpf?ia._irpf.pct:'',
+        idx===0&&ia._irpf?ia._irpf.importe:''
       ];
       for(let i=0;i<10;i++) row.push(idx===0?albs[i]||'':'');
       rows.push(row);
     });
   });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
-  ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:30},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:10},{wch:13},{wch:15},{wch:13},{wch:20},{wch:12},...Array(10).fill({wch:12})];
+  ws['!cols']=[{wch:14},{wch:14},{wch:22},{wch:12},{wch:14},{wch:30},{wch:15},{wch:18},{wch:14},{wch:14},{wch:15},{wch:10},{wch:12},{wch:10},{wch:13},{wch:15},{wch:13},{wch:20},{wch:12},{wch:8},{wch:12},...Array(10).fill({wch:12})];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'AS400');
   XLSX.writeFile(wb,`AS400_asientos_montero_${new Date().toISOString().slice(0,10)}.xlsx`);
