@@ -486,8 +486,8 @@ const AYUDA={
        h:'Compruébalo en el PDF antes de pagarla.'},
   V50:{q:'Los importes los tiene que comprobar una persona.',
        h:'Este proveedor factura por tarifa y las cuentas no encajan solas. Comprueba los precios contra su tarifa y valídala a mano.'},
-  V60:{q:'Puede ser un albarán colado como factura.',
-       h:'Un albarán valorado lleva precios, IVA y total y se parece mucho a una factura. Abre el PDF y mira: si dice «Albarán», «Nº Albaranes», o avisa de que la factura se emitirá después, no es una factura: quítala con «Eliminar» y su papel se engancha solo a la factura cuando llegue. Si es una factura de verdad, valídala normal: el aviso salta por cómo se llama el archivo o por el número.'},
+  V60:{q:'Puede ser un albarán o un pedido colado como factura.',
+       h:'Un albarán valorado lleva precios, IVA y total y se parece mucho a una factura, y un pedido de Montero también (el que dice «PROVEEDOR: 5496 · N. PEDIDO: …»). Abre el PDF y mira: si dice «Albarán», «Nº Albaranes», «N. PEDIDO» o avisa de que la factura se emitirá después, no es una factura: quítala con «Eliminar» y su papel se engancha solo a la factura cuando llegue. Si es una factura de verdad, valídala normal: el aviso salta por cómo se llama el archivo o por el número.'},
   EX01:{q:'La lectura no es fiable: el documento se ve mal.',
         h:'Abre el PDF. Si tú lo lees bien, dale a «Releer». Si está borroso, pide una copia mejor.'},
   IA:{q:'Algo que ha visto la IA al leer el documento.',
@@ -1195,7 +1195,7 @@ function viewFacturas(){
     const grave=S.estado==='GRAVE';
     return `<div style="margin:0 0 12px;padding:9px 12px;border:1px solid ${grave?'var(--rd)':'var(--line)'};border-left:3px solid ${grave?'var(--rd)':'var(--amber)'};border-radius:8px;background:${grave?'var(--rd-s)':'var(--card)'};font-size:12.5px;line-height:1.55">
       <b style="color:${grave?'var(--rd)':'var(--ink)'}">${grave?'El sistema tiene un problema':'El sistema pide atención'}</b>
-      ${S.problemas.map(x=>`<div style="margin-top:6px"><b style="color:var(--ink)">${esc(x.que)}</b><br><span style="color:var(--muted)">${esc(x.que_hacer)}</span></div>`).join('')}
+      ${S.problemas.map(x=>`<div style="margin-top:6px"><b style="color:var(--ink)">${esc(x.que)}</b><br><span style="color:var(--muted)">${esc(x.que_hacer)}</span>${x.soporte?`<br><span style="color:var(--muted);font-size:11px;font-family:ui-monospace,monospace">Para soporte: ${esc(x.soporte)}</span>`:''}</div>`).join('')}
     </div>`;
   })();
   return `<div class="card">
